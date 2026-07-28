@@ -295,11 +295,6 @@ const firebaseConfig = {
 };
 firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
-// Anonymous sign-in is the database key, not anyone's identity. Firebase auto-deletes these
-// accounts after 30 days; this listener silently creates a fresh one whenever that happens.
-firebase.auth().onAuthStateChanged(u => {
-  if (!u) firebase.auth().signInAnonymously().catch(() => {});
-});
 // Realtime Database keys cannot contain . # $ [ ] /
 function safeId(id) { return String(id).replace(/[.#$\[\]\/]/g, '-'); }
 
@@ -755,8 +750,14 @@ function App() {
   const [cursor, setCursor] = useState(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime(); });
 
   // Live subscription: the shared board is the source of truth for every tab and machine.
+  // Subscribe only AFTER anonymous sign-in completes: a read that arrives before auth is
+  // ready gets permission_denied and Firebase permanently cancels that listener.
+  // Anonymous sign-in is the database key, not anyone's identity. Firebase auto-deletes
+  // these accounts after 30 days; the auth listener silently creates a fresh one and
+  // re-subscribes whenever that happens.
   useEffect(() => {
     const ref = db.ref('orders');
+    let attached = false;
     const onValue = (snap) => {
       const list = Object.values(snap.val() || {});
       setOrders(list);
@@ -767,11 +768,24 @@ function App() {
       purgeDoneFiles(list);
     };
     const onError = (err) => {
+      attached = false;
       setSynced(true);
       setSyncError((err && err.message) || String(err));
     };
-    ref.on('value', onValue, onError);
-    return () => ref.off('value', onValue);
+    const unsubAuth = firebase.auth().onAuthStateChanged(u => {
+      if (!u) {
+        firebase.auth().signInAnonymously().catch(e => {
+          setSynced(true);
+          setSyncError('Could not sign in to the shared board. ' + ((e && e.message) || ''));
+        });
+        return;
+      }
+      if (!attached) {
+        attached = true;
+        ref.on('value', onValue, onError);
+      }
+    });
+    return () => { unsubAuth(); ref.off('value', onValue); };
   }, []);
 
   const writeOrder = (order) => {
