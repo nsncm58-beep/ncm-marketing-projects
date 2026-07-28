@@ -105,6 +105,10 @@
     border: 1px solid #E5C0BA; background: #FBEFED; color: var(--red);
     border-radius: var(--radius); padding: 10px 14px; margin-bottom: 12px; font-size: 14px;
   }
+  .banner-note {
+    border: 1px solid #E8D5AE; background: #FBF4E1; color: var(--amber);
+    border-radius: var(--radius); padding: 10px 14px; margin-bottom: 12px; font-size: 14px;
+  }
 
   .board { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); overflow: auto; }
   table { width: 100%; border-collapse: collapse; }
@@ -656,6 +660,7 @@ function App() {
   const [orders, setOrders] = useState([]);
   const [synced, setSynced] = useState(false);
   const [syncError, setSyncError] = useState('');
+  const [lastBackup, setLastBackup] = useState(undefined);
   const [user, setUser] = useState(() => localStorage.getItem(USER_KEY) || '');
   const [statusFilter, setStatusFilter] = useState('All');
   const [brandFilter, setBrandFilter] = useState('');
@@ -700,9 +705,10 @@ function App() {
       if (!attached) {
         attached = true;
         ref.on('value', onValue, onError);
+        db.ref('meta/lastBackup').on('value', s => setLastBackup(s.val() || null), () => {});
       }
     });
-    return () => { unsubAuth(); ref.off('value', onValue); };
+    return () => { unsubAuth(); ref.off('value', onValue); db.ref('meta/lastBackup').off(); };
   }, []);
 
   const writeOrder = (order) => {
@@ -780,6 +786,10 @@ function App() {
     a.download = 'marketing-projects-' + toISO(new Date()) + '.csv';
     a.click();
     URL.revokeObjectURL(a.href);
+    // A full export (All view, no filters) counts as the monthly backup for the whole team.
+    if (statusFilter === 'All' && !brandFilter && !search && !meOnly) {
+      db.ref('meta/lastBackup').set(new Date().toISOString()).catch(() => {});
+    }
   };
 
   const remove = (id) => {
@@ -792,6 +802,9 @@ function App() {
   STATUSES.forEach(s => { counts[s] = orders.filter(o => o.status === s && !isArchived(o)).length; });
   counts.Archived = orders.filter(isArchived).length;
   const overdueCount = orders.filter(isOverdue).length;
+  const BACKUP_DUE_MS = 30 * 24 * 60 * 60 * 1000;
+  const backupDue = synced && orders.length > 0 && lastBackup !== undefined &&
+    (!lastBackup || Date.now() - Date.parse(lastBackup) > BACKUP_DUE_MS);
 
   let visible = orders.filter(o =>
     (statusFilter === 'Archived' ? isArchived(o) : (!isArchived(o) && (statusFilter === 'All' || o.status === statusFilter))) &&
@@ -833,6 +846,11 @@ function App() {
           <div className="banner-error">
             Not connected to the shared board: {syncError} Changes made now will not save.
             Check the internet connection and reload; tell Nate if it keeps happening.
+          </div>
+        )}
+        {backupDue && !syncError && (
+          <div className="banner-note">
+            Monthly backup due. Select All with no filters and click Export CSV, then save the file to the marketing SharePoint.
           </div>
         )}
         <div className="toolbar">
