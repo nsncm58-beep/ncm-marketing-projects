@@ -280,9 +280,6 @@ const TYPES = ['PDF promo', 'HTML promo', 'Print promo', 'House eblast', 'House 
   'Proposal', 'Advertiser/spec ad', 'Client mockup', 'Web ads', 'Social ads', 'Booth graphics', 'E-books', 'Other'];
 const STATUSES = ['Not started', 'In progress', 'Done'];
 
-// ORDERS_KEY is only read for the one-time migration of prototype-era localStorage data.
-const ORDERS_KEY = 'ncm_mktg_orders_v1';
-
 // Shared live storage for the whole team.
 const firebaseConfig = {
   apiKey: "AIzaSyCHfowgcEaB7r9Vre4VO2JMctFeJ-Cq8tg",
@@ -298,59 +295,12 @@ const db = firebase.database();
 // Realtime Database keys cannot contain . # $ [ ] /
 function safeId(id) { return String(id).replace(/[.#$\[\]\/]/g, '-'); }
 
-// Teams notifications: paste the Power Automate webhook URL between the quotes to turn them on.
-// Teams channel > Workflows > "Post to a channel when a webhook request is received" > copy URL.
-const TEAMS_WEBHOOK_URL = '';
-function notify(text) {
-  if (!TEAMS_WEBHOOK_URL) return;
-  try {
-    fetch(TEAMS_WEBHOOK_URL, {
-      method: 'POST', mode: 'no-cors',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        type: 'message',
-        attachments: [{
-          contentType: 'application/vnd.microsoft.card.adaptive',
-          content: { type: 'AdaptiveCard', version: '1.4', body: [{ type: 'TextBlock', text: text, wrap: true }] }
-        }]
-      })
-    }).catch(() => {});
-  } catch (e) {}
-}
-
 // Done orders move to the Archived view three months after completion.
 const ARCHIVE_MS = 90 * 24 * 60 * 60 * 1000;
 function isArchived(order) {
   return order.status === 'Done' && Date.now() - Date.parse(order.doneAt || order.updatedAt) > ARCHIVE_MS;
 }
 const USER_KEY = 'ncm_mktg_user_v1';
-
-const SEED = [
-  {
-    id: 'seed-1', name: 'Courtney', brand: 'Golfdom', projectName: 'Golfdom images for June AAM audit',
-    description: 'Please provide the images for the Golfdom June audit report.\n\nJune 2026 issue cover\nHome page (golfdom.com)\nGolfdom Insider enews\nLogo',
-    types: ['Other'], typeOther: 'JPEG images', dueDate: '2026-07-29', status: 'In progress',
-    assignedTo: 'Bobbi', createdAt: '2026-07-22T14:05:00.000Z', updatedAt: '2026-07-24T09:30:00.000Z'
-  },
-  {
-    id: 'seed-2', name: 'Rachel', brand: 'Landscape Management', projectName: 'LM Growth Summit promo email',
-    description: 'Promo email for the LM Growth Summit attendee push. Copy doc to follow.',
-    types: ['House eblast'], typeOther: '', dueDate: '2026-08-07', status: 'Not started',
-    assignedTo: 'Sydney', createdAt: '2026-07-24T16:40:00.000Z', updatedAt: '2026-07-24T16:40:00.000Z'
-  },
-  {
-    id: 'seed-3', name: 'Michelle', brand: 'Pest Management Professional', projectName: 'PMP September print ad resize',
-    description: 'Resize the September full-page house ad to half page for the fall issue.',
-    types: ['House ad (include ad size in description)'], typeOther: '', dueDate: '2026-07-24', status: 'Done',
-    assignedTo: 'Amelia', createdAt: '2026-07-18T13:00:00.000Z', updatedAt: '2026-07-23T11:15:00.000Z'
-  },
-  {
-    id: 'seed-4', name: 'Sydney', brand: 'Portable Plants', projectName: 'PP September enews header',
-    description: 'New header graphic for the Portable Plants September enews. 600x200, logo left, September show dates listed.',
-    types: ['HTML promo'], typeOther: '', dueDate: '2026-08-05', status: 'Not started',
-    assignedTo: '', createdAt: '2026-07-27T15:20:00.000Z', updatedAt: '2026-07-27T15:20:00.000Z', attachments: []
-  }
-];
 
 // Files on Done orders are removed 48 hours after completion so storage never accumulates.
 // Runs on every snapshot; the writes are idempotent (once purged, nothing left to purge).
@@ -363,37 +313,6 @@ function purgeDoneFiles(orders) {
       db.ref('orders/' + safeId(o.id)).update({ attachments: null, attachmentsPurged: true }).catch(() => {});
     }
   });
-}
-
-// One-time per browser: push any orders saved during the localStorage prototype era onto the
-// shared board (skipping ids the board already has). Fresh browsers skip straight past this.
-function migrateLocalOnce(currentList) {
-  if (localStorage.getItem('ncm_mktg_migrated_v1')) return;
-  localStorage.setItem('ncm_mktg_migrated_v1', '1');
-  try {
-    const local = JSON.parse(localStorage.getItem(ORDERS_KEY) || 'null');
-    if (!Array.isArray(local) || local.length === 0) return;
-    const existing = new Set(currentList.map(o => o.id));
-    const updates = {};
-    local.forEach(o => {
-      if (!o || !o.id) return;
-      const id = safeId(o.id);
-      if (!existing.has(id)) updates['orders/' + id] = JSON.parse(JSON.stringify({ ...o, id }));
-    });
-    if (Object.keys(updates).length) db.ref().update(updates).catch(() => {});
-  } catch (e) {}
-}
-
-// If the shared board has never held anything, seed the sample orders so the first visitor
-// does not land on an empty page. Guarded by a marker so a deliberately emptied board stays empty.
-function seedIfEmpty(currentList) {
-  if (currentList.length) return;
-  db.ref('meta/seeded').once('value').then(snap => {
-    if (snap.val()) return;
-    const updates = { 'meta/seeded': true };
-    SEED.forEach(o => { updates['orders/' + safeId(o.id)] = JSON.parse(JSON.stringify(o)); });
-    db.ref().update(updates).catch(() => {});
-  }).catch(() => {});
 }
 
 const AP_MONTHS = ['Jan.', 'Feb.', 'March', 'April', 'May', 'June', 'July', 'Aug.', 'Sept.', 'Oct.', 'Nov.', 'Dec.'];
@@ -763,8 +682,6 @@ function App() {
       setOrders(list);
       setSynced(true);
       setSyncError('');
-      migrateLocalOnce(list);
-      seedIfEmpty(list);
       purgeDoneFiles(list);
     };
     const onError = (err) => {
@@ -811,8 +728,6 @@ function App() {
     } else {
       const order = { ...form, id: 'wo-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7), status: 'Not started', createdAt: now, updatedAt: now };
       writeOrder(order);
-      notify((order.rush ? 'New rush work order: ' : 'New work order: ') + order.projectName +
-        ' (' + order.brand + '), due ' + fmtDate(order.dueDate) + ', from ' + order.name);
     }
     setShowForm(false); setEditing(null); setPrefill(null);
   };
@@ -832,7 +747,6 @@ function App() {
     const next = { ...target, assignees: [user], updatedAt: new Date().toISOString() };
     delete next.assignedTo;
     writeOrder(next);
-    notify(user + ' claimed: ' + target.projectName + ' (' + target.brand + ')');
   };
 
   const addComment = (id, text) => {
