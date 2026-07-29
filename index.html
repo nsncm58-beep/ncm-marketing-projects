@@ -378,14 +378,13 @@ function NamePicker({ onPick }) {
 function OrderForm({ user, initial, prefill, onSave, onCancel }) {
   const blank = {
     name: user, brand: '', projectName: '', description: '', types: [], typeOther: '',
-    dueDate: '', assignees: [], participants: ['', ''], attachments: [], rush: false
+    dueDate: '', assignees: [], attachments: [], rush: false
   };
   const [form, setForm] = useState(() => {
     if (initial) return {
       ...blank, ...initial,
       types: orderTypes(initial),
       assignees: assigneesOf(initial),
-      participants: [(initial.participants || [])[0] || '', (initial.participants || [])[1] || ''],
       attachments: initial.attachments || []
     };
     // Duplicating: carry over the what and who, reset dates, files, rush and requester.
@@ -393,8 +392,7 @@ function OrderForm({ user, initial, prefill, onSave, onCancel }) {
       ...blank,
       brand: prefill.brand || '', projectName: prefill.projectName || '', description: prefill.description || '',
       types: orderTypes(prefill), typeOther: prefill.typeOther || '',
-      assignees: assigneesOf(prefill),
-      participants: [(prefill.participants || [])[0] || '', (prefill.participants || [])[1] || '']
+      assignees: assigneesOf(prefill)
     };
     return blank;
   });
@@ -406,9 +404,6 @@ function OrderForm({ user, initial, prefill, onSave, onCancel }) {
   };
   const toggleAssignee = (p) => {
     setForm(f => ({ ...f, assignees: f.assignees.includes(p) ? f.assignees.filter(x => x !== p) : [...f.assignees, p] }));
-  };
-  const setParticipant = (i, v) => {
-    setForm(f => { const p = [...f.participants]; p[i] = v; return { ...f, participants: p }; });
   };
   const addFiles = (e) => {
     const chosen = Array.from(e.target.files).map(fl => ({ name: fl.name, size: fl.size, mime: fl.type }));
@@ -426,7 +421,7 @@ function OrderForm({ user, initial, prefill, onSave, onCancel }) {
     if (form.types.includes('Other') && !form.typeOther.trim()) {
       setError('Specify the project type under "If other".'); return;
     }
-    const clean = { ...form, participants: form.participants.map(p => p.trim()).filter(Boolean) };
+    const clean = { ...form };
     delete clean.type;
     delete clean.assignedTo;
     onSave(clean);
@@ -499,13 +494,6 @@ function OrderForm({ user, initial, prefill, onSave, onCancel }) {
           </label>
         </div>
         <div className="field">
-          <label>Project participants (optional)</label>
-          <div className="two-col">
-            <input type="text" maxLength={60} value={form.participants[0]} onChange={e => setParticipant(0, e.target.value)} placeholder="Name" />
-            <input type="text" maxLength={60} value={form.participants[1]} onChange={e => setParticipant(1, e.target.value)} placeholder="Name" />
-          </div>
-        </div>
-        <div className="field">
           <label>Attach files (up to 4)</label>
           {form.attachments.length < 4 && <input type="file" multiple onChange={addFiles} />}
           {form.attachments.length > 0 && (
@@ -549,11 +537,6 @@ function OrderDetail({ order, onStatus, onClaim, onComment, onEdit, onDuplicate,
           <dt>Assigned to</dt>
           <dd>{assigneesOf(order).length ? assigneesOf(order).join(', ') : <button className="btn-claim" onClick={onClaim}>Claim</button>}</dd>
           <dt>Final due date</dt><dd className={isOverdue(order) ? 'ovd' : ''}>{fmtDate(order.dueDate)}{isOverdue(order) ? ' (overdue)' : ''}</dd>
-          {(order.participants || []).length > 0 && (
-            <React.Fragment>
-              <dt>Participants</dt><dd>{order.participants.join(', ')}</dd>
-            </React.Fragment>
-          )}
           {(order.attachments || []).length > 0 && (
             <React.Fragment>
               <dt>Files</dt>
@@ -777,10 +760,10 @@ function App() {
       if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
       return '"' + s.replace(/"/g, '""') + '"';
     };
-    const rows = [['Project', 'Types', 'Brand', 'Requested by', 'Assigned to', 'Due date', 'Status', 'Rush', 'Submitted', 'Participants', 'Description']];
+    const rows = [['Project', 'Types', 'Brand', 'Requested by', 'Assigned to', 'Due date', 'Status', 'Rush', 'Submitted', 'Description']];
     visible.forEach(o => rows.push([
       o.projectName, typeLabel(o), o.brand, o.name, assigneesOf(o).join('; '), o.dueDate || '', o.status,
-      o.rush ? 'Yes' : 'No', (o.createdAt || '').slice(0, 10), (o.participants || []).join('; '), o.description
+      o.rush ? 'Yes' : 'No', (o.createdAt || '').slice(0, 10), o.description
     ]));
     const csv = rows.map(r => r.map(esc).join(',')).join('\r\n');
     const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' });
