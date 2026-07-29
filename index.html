@@ -158,9 +158,10 @@
     border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface);
     padding: 5px 8px; font-size: 14px; font-weight: 500; cursor: pointer;
   }
-  select.status.s0 { color: var(--gray); }
+  select.status.s0, select.status.s3, select.status.s5 { color: var(--gray); }
   select.status.s1 { color: var(--amber); }
-  select.status.s2 { color: var(--green); }
+  select.status.s2 { color: var(--accent-dark); }
+  select.status.s4 { color: var(--green); }
   .empty { padding: 32px 14px; color: var(--gray); font-size: 15px; }
 
   .overlay {
@@ -217,15 +218,16 @@
   .detail-grid { display: grid; grid-template-columns: 135px 1fr; row-gap: 10px; column-gap: 14px; font-size: 14.5px; }
   .detail-grid dt { color: var(--gray); font-size: 13px; font-weight: 700; padding-top: 1px; }
   .detail-grid dd { white-space: pre-wrap; }
-  .status-row { display: flex; gap: 6px; margin: 14px 0 2px; }
+  .status-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 14px 0 2px; }
   .status-btn {
     flex: 1; border-radius: var(--radius); border: 1px solid var(--line); background: var(--surface);
     padding: 9px 8px; font-size: 14px; font-weight: 700; cursor: pointer; color: var(--gray);
   }
   .status-btn:hover { background: var(--bg); }
-  .status-btn.active.s0 { background: #4A5460; border-color: #4A5460; color: #fff; }
+  .status-btn.active.s0, .status-btn.active.s3, .status-btn.active.s5 { background: #4A5460; border-color: #4A5460; color: #fff; }
   .status-btn.active.s1 { background: var(--amber); border-color: var(--amber); color: #fff; }
-  .status-btn.active.s2 { background: var(--green); border-color: var(--green); color: #fff; }
+  .status-btn.active.s2 { background: var(--accent-dark); border-color: var(--accent-dark); color: #fff; }
+  .status-btn.active.s4 { background: var(--green); border-color: var(--green); color: #fff; }
   .meta-line { color: var(--gray); font-size: 13px; margin-top: 12px; }
 
   .picker { max-width: 420px; }
@@ -261,9 +263,10 @@
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
   .cal-chip:hover { background: var(--bg); }
-  .cal-chip.s0 { border-left-color: #8C95A1; }
+  .cal-chip.s0, .cal-chip.s3, .cal-chip.s5 { border-left-color: #8C95A1; }
   .cal-chip.s1 { border-left-color: var(--amber); }
-  .cal-chip.s2 { border-left-color: var(--green); }
+  .cal-chip.s2 { border-left-color: var(--accent-dark); }
+  .cal-chip.s4 { border-left-color: var(--green); }
   .cal-chip.rush { border-left-color: var(--red); }
   .cal-grid.week .cal-chip { white-space: normal; }
   .chip-sub { display: block; color: var(--gray); font-size: 12px; margin-top: 2px; }
@@ -291,7 +294,10 @@ const BRANDS = ['Athletic Turf', 'Golfdom', 'Landscape Management', 'LP Gas',
   'Pest Management Professional', 'Pit & Quarry', 'Portable Plants', 'North Coast Media (corporate)', 'Multiple brands'];
 const TYPES = ['PDF promo', 'HTML promo', 'Print promo', 'House eblast', 'House ad (include ad size in description)',
   'Proposal', 'Advertiser/spec ad', 'Client mockup', 'Web ads', 'Social ads', 'Booth graphics', 'E-books', 'Other'];
-const STATUSES = ['Not started', 'In progress', 'Done'];
+const STATUSES = ['Not started', 'In progress', 'Out for review', 'On hold', 'Done', 'Canceled'];
+// Done and Canceled are the closed states: they sink to the bottom, archive after 90 days
+// and lose their files 48 hours after closing.
+function isClosed(order) { return order.status === 'Done' || order.status === 'Canceled'; }
 
 // Shared live storage for the whole team.
 const firebaseConfig = {
@@ -311,7 +317,7 @@ function safeId(id) { return String(id).replace(/[.#$\[\]\/]/g, '-'); }
 // Done orders move to the Archived view three months after completion.
 const ARCHIVE_MS = 90 * 24 * 60 * 60 * 1000;
 function isArchived(order) {
-  return order.status === 'Done' && Date.now() - Date.parse(order.doneAt || order.updatedAt) > ARCHIVE_MS;
+  return isClosed(order) && Date.now() - Date.parse(order.doneAt || order.updatedAt) > ARCHIVE_MS;
 }
 const USER_KEY = 'ncm_mktg_user_v1';
 
@@ -321,7 +327,7 @@ const PURGE_MS = 48 * 60 * 60 * 1000;
 function purgeDoneFiles(orders) {
   const now = Date.now();
   orders.forEach(o => {
-    const doneSince = o.status === 'Done' ? Date.parse(o.doneAt || o.updatedAt) : null;
+    const doneSince = isClosed(o) ? Date.parse(o.doneAt || o.updatedAt) : null;
     if (doneSince && now - doneSince > PURGE_MS && (o.attachments || []).length > 0) {
       (o.attachments || []).forEach(a => { if (a.fileId) db.ref('files/' + a.fileId).remove().catch(() => {}); });
       db.ref('orders/' + safeId(o.id)).update({ attachments: null, attachmentsPurged: true }).catch(() => {});
@@ -345,7 +351,7 @@ function fmtDate(iso) {
   return AP_MONTHS[dt.getMonth()] + ' ' + dt.getDate() + ', ' + dt.getFullYear();
 }
 function isOverdue(order) {
-  if (!order.dueDate || order.status === 'Done') return false;
+  if (!order.dueDate || isClosed(order)) return false;
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   return parseDay(order.dueDate) < today;
@@ -531,7 +537,7 @@ function OrderForm({ user, initial, prefill, onSave, onCancel }) {
               ))}
             </ul>
           )}
-          <div className="form-note">Up to 4 files, 10MB each. Anyone on the team can view and download them from the order. Files are removed automatically two days after a project is marked done.</div>
+          <div className="form-note">Up to 4 files, 10MB each. Anyone on the team can view and download them from the order. Files are removed automatically two days after a project is marked done or canceled.</div>
         </div>
         {error && <div className="form-error">{error}</div>}
         <div className="modal-actions">
@@ -605,7 +611,7 @@ function OrderDetail({ order, onStatus, onClaim, onComment, onEdit, onDuplicate,
           {(order.attachments || []).length === 0 && order.attachmentsPurged && (
             <React.Fragment>
               <dt>Files</dt>
-              <dd>Removed automatically two days after the project was marked done.</dd>
+              <dd>Removed automatically two days after the project was marked done or canceled.</dd>
             </React.Fragment>
           )}
           <dt>Description</dt><dd>{order.description}</dd>
@@ -688,7 +694,7 @@ function Calendar({ mode, cursorDate, orders, onNav, onToday, onOpen }) {
             <div key={iso} className={'cal-cell' + (isToday ? ' today' : '') + (dim ? ' dim' : '')}>
               <span className={'cal-daynum' + (isToday ? ' today' : '')}>{d.getDate()}</span>
               {dayOrders.map(o => (
-                <button key={o.id} className={'cal-chip ' + statusClass(o.status) + (o.rush && o.status !== 'Done' ? ' rush' : '')} title={o.projectName} onClick={() => onOpen(o.id)}>
+                <button key={o.id} className={'cal-chip ' + statusClass(o.status) + (o.rush && !isClosed(o) ? ' rush' : '')} title={o.projectName} onClick={() => onOpen(o.id)}>
                   {o.projectName}
                   {mode === 'week' && <span className="chip-sub">{o.brand} · {assigneesOf(o).length ? assigneesOf(o).join(', ') : 'Unassigned'}</span>}
                 </button>
@@ -826,7 +832,7 @@ function App() {
     const o = orders.find(x => x.id === id);
     if (!o) return;
     const next = { ...o, status, updatedAt: new Date().toISOString() };
-    if (status === 'Done') { if (!next.doneAt) next.doneAt = next.updatedAt; }
+    if (status === 'Done' || status === 'Canceled') { if (!next.doneAt) next.doneAt = next.updatedAt; }
     else delete next.doneAt;
     writeOrder(next);
   };
@@ -899,7 +905,7 @@ function App() {
     (!search || ((o.projectName || '') + ' ' + (o.description || '') + ' ' + (o.brand || '') + ' ' + typeLabel(o)).toLowerCase().includes(search.toLowerCase()))
   );
   // Rush first, then unassigned active work so it gets claimed, then assigned active work, Done last.
-  const rank = o => o.status === 'Done' ? 3 : (o.rush ? 0 : (assigneesOf(o).length ? 2 : 1));
+  const rank = o => isClosed(o) ? 3 : (o.rush ? 0 : (assigneesOf(o).length ? 2 : 1));
   visible = visible.slice().sort((a, b) => {
     if (rank(a) !== rank(b)) return rank(a) - rank(b);
     return (a.dueDate || '9999').localeCompare(b.dueDate || '9999');
@@ -987,12 +993,12 @@ function App() {
                   {orders.length === 0
                     ? 'No work orders yet. Select + New work order to submit the first one.'
                     : statusFilter === 'Archived'
-                      ? 'No archived work orders. Done orders move here three months after completion.'
+                      ? 'No archived work orders. Done and canceled orders move here three months after they close.'
                       : 'No work orders match these filters. Clear a filter or adjust the search.'}
                 </td></tr>
               )}
               {visible.map(o => (
-                <tr key={o.id} className={o.status === 'Done' ? 'done-row' : (o.rush ? 'rush-row' : (assigneesOf(o).length === 0 ? 'unassigned-row' : ''))} onClick={() => setDetailId(o.id)}>
+                <tr key={o.id} className={isClosed(o) ? 'done-row' : (o.rush ? 'rush-row' : (assigneesOf(o).length === 0 ? 'unassigned-row' : ''))} onClick={() => setDetailId(o.id)}>
                   <td className="proj">
                     {o.rush && o.status !== 'Done' && <span className="rush-tag">Rush</span>}
                     {o.projectName}
