@@ -207,6 +207,12 @@
   .file-list li { display: flex; align-items: center; justify-content: space-between; gap: 10px; border: 1px solid var(--line); border-radius: var(--radius); padding: 5px 9px; margin-bottom: 4px; font-size: 13.5px; }
   .file-list button { border: none; background: none; color: var(--red); cursor: pointer; font-size: 13px; text-decoration: underline; padding: 0; }
   .form-note { color: var(--gray); font-size: 12.5px; margin-top: 6px; }
+  .file-row { margin-bottom: 5px; white-space: normal; }
+  .file-link {
+    border: none; background: none; color: var(--accent-dark); text-decoration: underline;
+    cursor: pointer; padding: 0; font-size: 14px; text-align: left;
+  }
+  .file-size { color: var(--gray); font-size: 13px; }
 
   .detail-grid { display: grid; grid-template-columns: 135px 1fr; row-gap: 10px; column-gap: 14px; font-size: 14.5px; }
   .detail-grid dt { color: var(--gray); font-size: 13px; font-weight: 700; padding-top: 1px; }
@@ -317,6 +323,7 @@ function purgeDoneFiles(orders) {
   orders.forEach(o => {
     const doneSince = o.status === 'Done' ? Date.parse(o.doneAt || o.updatedAt) : null;
     if (doneSince && now - doneSince > PURGE_MS && (o.attachments || []).length > 0) {
+      (o.attachments || []).forEach(a => { if (a.fileId) db.ref('files/' + a.fileId).remove().catch(() => {}); });
       db.ref('orders/' + safeId(o.id)).update({ attachments: null, attachmentsPurged: true }).catch(() => {});
     }
   });
@@ -397,6 +404,7 @@ function OrderForm({ user, initial, prefill, onSave, onCancel }) {
     return blank;
   });
   const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
   const toggleType = (t) => {
@@ -405,10 +413,26 @@ function OrderForm({ user, initial, prefill, onSave, onCancel }) {
   const toggleAssignee = (p) => {
     setForm(f => ({ ...f, assignees: f.assignees.includes(p) ? f.assignees.filter(x => x !== p) : [...f.assignees, p] }));
   };
+  const MAX_FILE_BYTES = 10 * 1024 * 1024;
   const addFiles = (e) => {
-    const chosen = Array.from(e.target.files).map(fl => ({ name: fl.name, size: fl.size, mime: fl.type }));
-    setForm(f => ({ ...f, attachments: [...f.attachments, ...chosen].slice(0, 4) }));
+    const chosen = Array.from(e.target.files);
     e.target.value = '';
+    const tooBig = chosen.filter(fl => fl.size > MAX_FILE_BYTES);
+    if (tooBig.length) {
+      setError('Files over 10MB are not supported: ' + tooBig.map(fl => fl.name).join(', ') + '. Compress or split them, then attach again.');
+    } else {
+      setError('');
+    }
+    const ok = chosen.filter(fl => fl.size <= MAX_FILE_BYTES);
+    if (!ok.length) return;
+    Promise.all(ok.map(fl => new Promise((res, rej) => {
+      const rd = new FileReader();
+      rd.onload = () => res({ name: fl.name, size: fl.size, mime: fl.type || 'application/octet-stream', dataB64: String(rd.result).split(',')[1] || '' });
+      rd.onerror = () => rej(rd.error);
+      rd.readAsDataURL(fl);
+    }))).then(read => {
+      setForm(f => ({ ...f, attachments: [...f.attachments, ...read].slice(0, 4) }));
+    }).catch(() => setError('A file could not be read. Attach it again.'));
   };
   const removeFile = (i) => {
     setForm(f => ({ ...f, attachments: f.attachments.filter((x, idx) => idx !== i) }));
@@ -424,7 +448,8 @@ function OrderForm({ user, initial, prefill, onSave, onCancel }) {
     const clean = { ...form };
     delete clean.type;
     delete clean.assignedTo;
-    onSave(clean);
+    setSaving(true);
+    Promise.resolve(onSave(clean)).catch(() => setSaving(false));
   };
 
   return (
@@ -506,20 +531,36 @@ function OrderForm({ user, initial, prefill, onSave, onCancel }) {
               ))}
             </ul>
           )}
-          <div className="form-note">This local version records file names only. Uploads start working when the shared version goes live. Files are removed automatically two days after a project is marked done.</div>
+          <div className="form-note">Up to 4 files, 10MB each. Anyone on the team can view and download them from the order. Files are removed automatically two days after a project is marked done.</div>
         </div>
         {error && <div className="form-error">{error}</div>}
         <div className="modal-actions">
           <button className="btn" onClick={onCancel}>Cancel</button>
-          <button className="btn primary" onClick={submit}>{initial ? 'Save changes' : 'Submit work order'}</button>
+          <button className="btn primary" disabled={saving} onClick={submit}>{saving ? 'Saving…' : (initial ? 'Save changes' : 'Submit work order')}</button>
         </div>
       </div>
     </div>
   );
 }
 
-function OrderDetail({ order, onStatus, onClaim, onComment, onEdit, onDuplicate, onDelete, onClose }) {
+function OrderDetail({ order, onStatus, onClaim, onComment, onEdit, onDuplicate, onDelete, onClose, fetchFile }) {
   const [draft, setDraft] = useState('');
+  const [fileBusy, setFileBusy] = useState('');
+  const openFile = (att, download) => {
+    setFileBusy(att.fileId + (download ? ':d' : ':v'));
+    fetchFile(att).then(blob => {
+      const url = URL.createObjectURL(blob);
+      if (download) {
+        const a = document.createElement('a');
+        a.href = url; a.download = att.name; a.click();
+      } else {
+        window.open(url, '_blank');
+      }
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    }).catch(e => {
+      window.alert('The file could not be loaded. It may have been removed. Reload the page and try again. ' + ((e && e.message) || ''));
+    }).then(() => setFileBusy(''));
+  };
   const postComment = () => { if (draft.trim()) { onComment(draft); setDraft(''); } };
   return (
     <div className="overlay" onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
@@ -540,7 +581,25 @@ function OrderDetail({ order, onStatus, onClaim, onComment, onEdit, onDuplicate,
           {(order.attachments || []).length > 0 && (
             <React.Fragment>
               <dt>Files</dt>
-              <dd>{order.attachments.map(a => a.name + ' (' + fmtSize(a.size) + ')').join('\n')}</dd>
+              <dd>
+                {order.attachments.map((a, i) => (
+                  <div key={i} className="file-row">
+                    {a.fileId ? (
+                      <React.Fragment>
+                        <button className="file-link" onClick={() => openFile(a, false)}>
+                          {fileBusy === a.fileId + ':v' ? 'Loading…' : a.name}
+                        </button>
+                        <span className="file-size"> ({fmtSize(a.size)}) </span>
+                        <button className="file-link" onClick={() => openFile(a, true)}>
+                          {fileBusy === a.fileId + ':d' ? 'Loading…' : 'Download'}
+                        </button>
+                      </React.Fragment>
+                    ) : (
+                      <span>{a.name} ({fmtSize(a.size)}) · name only, recorded before uploads were enabled</span>
+                    )}
+                  </div>
+                ))}
+              </dd>
             </React.Fragment>
           )}
           {(order.attachments || []).length === 0 && order.attachmentsPurged && (
@@ -712,16 +771,55 @@ function App() {
 
   const pickUser = (name) => { localStorage.setItem(USER_KEY, name); setUser(name); };
 
-  const upsert = (form) => {
+  // New attachments arrive from the form with their contents (dataB64); store each under
+  // files/<fileId> so the board listener never downloads file bytes, only metadata.
+  const storeNewFiles = async (orderId, attachments) => {
+    const out = [];
+    for (const a of (attachments || [])) {
+      if (a.dataB64 != null) {
+        const fileId = 'f-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+        await db.ref('files/' + fileId).set({
+          name: a.name, mime: a.mime || 'application/octet-stream', orderId: orderId,
+          uploadedAt: new Date().toISOString(), data: a.dataB64
+        });
+        out.push({ name: a.name, size: a.size, mime: a.mime || 'application/octet-stream', fileId: fileId });
+      } else {
+        out.push(a);
+      }
+    }
+    return out;
+  };
+
+  const upsert = async (form) => {
     const now = new Date().toISOString();
-    if (editing) {
-      const current = orders.find(o => o.id === editing.id) || editing;
-      writeOrder({ ...current, ...form, updatedAt: now });
-    } else {
-      const order = { ...form, id: 'wo-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7), status: 'Not started', createdAt: now, updatedAt: now };
-      writeOrder(order);
+    try {
+      if (editing) {
+        const current = orders.find(o => o.id === editing.id) || editing;
+        const atts = await storeNewFiles(current.id, form.attachments);
+        const keptIds = new Set(atts.map(a => a.fileId).filter(Boolean));
+        for (const a of (current.attachments || [])) {
+          if (a.fileId && !keptIds.has(a.fileId)) await db.ref('files/' + a.fileId).remove();
+        }
+        writeOrder({ ...current, ...form, attachments: atts, updatedAt: now });
+      } else {
+        const id = 'wo-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7);
+        const atts = await storeNewFiles(id, form.attachments);
+        writeOrder({ ...form, id: id, attachments: atts, status: 'Not started', createdAt: now, updatedAt: now });
+      }
+    } catch (e) {
+      setSyncError('Could not save the files. ' + ((e && e.message) || ''));
     }
     setShowForm(false); setEditing(null); setPrefill(null);
+  };
+
+  const fetchFile = async (att) => {
+    const snap = await db.ref('files/' + att.fileId).once('value');
+    const f = snap.val();
+    if (!f || !f.data) throw new Error('The file is no longer stored.');
+    const bytes = atob(f.data);
+    const arr = new Uint8Array(bytes.length);
+    for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
+    return new Blob([arr], { type: f.mime || att.mime || 'application/octet-stream' });
   };
 
   const setStatus = (id, status) => {
@@ -780,6 +878,8 @@ function App() {
 
   const remove = (id) => {
     if (!window.confirm('Delete this work order? This cannot be undone.')) return;
+    const o = orders.find(x => x.id === id);
+    ((o && o.attachments) || []).forEach(a => { if (a.fileId) db.ref('files/' + a.fileId).remove().catch(() => {}); });
     db.ref('orders/' + safeId(id)).remove().catch(e => setSyncError('Could not delete. ' + ((e && e.message) || '')));
     setDetailId(null);
   };
@@ -935,7 +1035,7 @@ function App() {
           onCancel={() => { setShowForm(false); setEditing(null); setPrefill(null); }} />
       )}
       {detail && !showForm && (
-        <OrderDetail order={detail}
+        <OrderDetail order={detail} fetchFile={fetchFile}
           onStatus={s => setStatus(detail.id, s)}
           onClaim={() => claim(detail.id)}
           onComment={t => addComment(detail.id, t)}
