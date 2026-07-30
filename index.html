@@ -151,7 +151,7 @@
     padding: 8px 10px; font-size: 14px; min-height: 44px; resize: vertical;
   }
   td.proj { max-width: 460px; font-weight: 700; }
-  td.dim2 { color: var(--gray); }
+  td.dim2 { color: var(--gray); max-width: 230px; }
   td.due { font-variant-numeric: tabular-nums; }
   .ovd { color: var(--red); font-weight: 700; }
   select.status {
@@ -363,6 +363,13 @@ function typeLabel(order) {
   return orderTypes(order)
     .map(t => t === 'Other' && order.typeOther ? 'Other: ' + order.typeOther : t)
     .join(', ');
+}
+// Compact form for the table: first type plus a count, so long lists never widen the row.
+function typeLabelShort(order) {
+  const types = orderTypes(order);
+  if (!types.length) return '';
+  const first = types[0] === 'Other' && order.typeOther ? 'Other: ' + order.typeOther : types[0];
+  return types.length > 1 ? first + ' +' + (types.length - 1) : first;
 }
 function fmtSize(bytes) {
   if (bytes < 1024) return bytes + ' B';
@@ -1006,7 +1013,7 @@ function App() {
                       <span className="cmt"> · {o.comments.length} {o.comments.length === 1 ? 'comment' : 'comments'}</span>
                     )}
                   </td>
-                  <td className="hide-sm dim2">{typeLabel(o)}</td>
+                  <td className="hide-sm dim2" title={typeLabel(o)}>{typeLabelShort(o)}</td>
                   <td className="hide-sm">{o.brand}</td>
                   <td className="hide-sm">{o.name}</td>
                   <td className="hide-sm">
