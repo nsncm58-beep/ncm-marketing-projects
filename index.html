@@ -79,6 +79,7 @@
     color: var(--gray); font-size: 13px; line-height: 1.35; max-width: 210px;
     border-left: 1px solid var(--line); padding-left: 14px; margin-left: 2px;
   }
+  .header-export { margin-left: auto; }
   .userbox { text-align: right; font-size: 13.5px; color: var(--gray); }
   .userbox b { color: var(--ink); }
   .userbox button {
@@ -99,7 +100,7 @@
   }
   .toolbar input[type=search] { min-width: 220px; }
   .btn-new {
-    margin-left: auto; background: var(--accent); color: #fff; border: 1px solid var(--accent);
+    background: var(--accent); color: #fff; border: 1px solid var(--accent);
     border-radius: var(--radius); padding: 10px 18px; font-size: 15px; font-weight: 700; cursor: pointer;
   }
   .btn-new:hover { background: var(--accent-dark); border-color: var(--accent-dark); }
@@ -930,6 +931,7 @@ function App() {
             <div className="lock-line blue">Projects</div>
           </div>
           <div className="site-sub">Work order tracker for the NCM marketing team</div>
+          <button className="btn header-export" onClick={exportCsv}>Export CSV</button>
           <button className="btn-new" onClick={() => { setEditing(null); setPrefill(null); setShowForm(true); }}>+ New work order</button>
           {user && (
             <div className="userbox">
@@ -947,7 +949,7 @@ function App() {
             Check the internet connection and reload; tell Nate if it keeps happening.
           </div>
         )}
-        {backupDue && !syncError && (
+        {backupDue && user === 'Nate' && !syncError && (
           <div className="banner-note">
             Monthly backup due. Select All with no filters and click Export CSV, then save the file.
           </div>
@@ -975,7 +977,6 @@ function App() {
               <button key={v} className={view === v ? 'active' : ''} onClick={() => { setView(v); if (v !== 'list') goToday(); }}>{lbl}</button>
             ))}
           </div>
-          <button className="btn" onClick={exportCsv}>Export CSV</button>
         </div>
 
         {view === 'list' && <div className="board">
