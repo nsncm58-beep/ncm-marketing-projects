@@ -890,7 +890,7 @@ function App() {
   };
 
   const remove = (id) => {
-    if (!window.confirm('Delete this work order? This cannot be undone.')) return;
+    if (!window.confirm('Are you sure? This permanently deletes the work order, its comments and its files for the whole team. This cannot be undone.')) return;
     const o = orders.find(x => x.id === id);
     ((o && o.attachments) || []).forEach(a => { if (a.fileId) db.ref('files/' + a.fileId).remove().catch(() => {}); });
     db.ref('orders/' + safeId(id)).remove().catch(e => setSyncError('Could not delete. ' + ((e && e.message) || '')));
