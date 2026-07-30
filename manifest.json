@@ -1,0 +1,22 @@
+{
+  "name": "NCM Marketing Projects",
+  "short_name": "NCM Projects",
+  "description": "Work order tracker for the NCM marketing team",
+  "start_url": "/ncm-marketing-projects/",
+  "scope": "/ncm-marketing-projects/",
+  "display": "standalone",
+  "background_color": "#F6F8FA",
+  "theme_color": "#0397D6",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
