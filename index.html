@@ -153,6 +153,9 @@
   .comment { margin-bottom: 10px; }
   .comment-meta { font-size: 12.5px; color: var(--gray); margin-bottom: 2px; }
   .comment-text { font-size: 14.5px; white-space: pre-wrap; }
+  .txt-link { color: var(--accent-dark); word-break: break-all; }
+  thead th.sortable { cursor: pointer; user-select: none; }
+  thead th.sortable:hover { background: var(--bg); }
   .comment-add { display: flex; gap: 8px; align-items: flex-start; margin-top: 10px; }
   .comment-add textarea {
     flex: 1; border: 1px solid var(--line); border-radius: var(--radius);
@@ -405,6 +408,18 @@ function fmtSize(bytes) {
 }
 function statusClass(status) {
   return 's' + STATUSES.indexOf(status);
+}
+// Turn pasted URLs in descriptions and comments into real links (https only).
+const LINK_SPLIT_RE = /(https?:\/\/[^\s<>"']*[^\s<>"'.,;:!?\)\]])/g;
+function linkify(text) {
+  const parts = String(text || '').split(LINK_SPLIT_RE);
+  return parts.map((p, i) => i % 2 === 1 ? /*#__PURE__*/React.createElement("a", {
+    key: i,
+    href: p,
+    target: "_blank",
+    rel: "noopener noreferrer",
+    className: "txt-link"
+  }, p) : p);
 }
 function assigneesOf(order) {
   return order.assignees || (order.assignedTo ? [order.assignedTo] : []);
@@ -727,7 +742,7 @@ function OrderDetail({
   }, " (", fmtSize(a.size), ") "), /*#__PURE__*/React.createElement("button", {
     className: "file-link",
     onClick: () => openFile(a, true)
-  }, fileBusy === a.fileId + ':d' ? 'Loading…' : 'Download')) : /*#__PURE__*/React.createElement("span", null, a.name, " (", fmtSize(a.size), ") \xB7 name only, recorded before uploads were enabled"))))), (order.attachments || []).length === 0 && order.attachmentsPurged && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("dt", null, "Files"), /*#__PURE__*/React.createElement("dd", null, "Removed automatically two days after the project was marked done or canceled.")), /*#__PURE__*/React.createElement("dt", null, "Description"), /*#__PURE__*/React.createElement("dd", null, order.description)), /*#__PURE__*/React.createElement("div", {
+  }, fileBusy === a.fileId + ':d' ? 'Loading…' : 'Download')) : /*#__PURE__*/React.createElement("span", null, a.name, " (", fmtSize(a.size), ") \xB7 name only, recorded before uploads were enabled"))))), (order.attachments || []).length === 0 && order.attachmentsPurged && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("dt", null, "Files"), /*#__PURE__*/React.createElement("dd", null, "Removed automatically two days after the project was marked done or canceled.")), /*#__PURE__*/React.createElement("dt", null, "Description"), /*#__PURE__*/React.createElement("dd", null, linkify(order.description))), /*#__PURE__*/React.createElement("div", {
     className: "status-row"
   }, STATUSES.map(s => /*#__PURE__*/React.createElement("button", {
     key: s,
@@ -748,7 +763,7 @@ function OrderDetail({
     className: "comment-meta"
   }, c.by, " \xB7 ", fmtDate(c.at.slice(0, 10))), /*#__PURE__*/React.createElement("div", {
     className: "comment-text"
-  }, c.text))), /*#__PURE__*/React.createElement("div", {
+  }, linkify(c.text)))), /*#__PURE__*/React.createElement("div", {
     className: "comment-add"
   }, /*#__PURE__*/React.createElement("textarea", {
     maxLength: 2000,
@@ -946,6 +961,19 @@ function App() {
     d.setHours(0, 0, 0, 0);
     setCursor(d.getTime());
   };
+
+  // Column sorting: click a header for ascending, again for descending, a third time for the default order.
+  const [sortCol, setSortCol] = useState(null);
+  const [sortDir, setSortDir] = useState('asc');
+  const clickHeader = key => {
+    if (sortCol !== key) {
+      setSortCol(key);
+      setSortDir('asc');
+    } else if (sortDir === 'asc') setSortDir('desc');else {
+      setSortCol(null);
+      setSortDir('asc');
+    }
+  };
   const pickUser = name => {
     localStorage.setItem(USER_KEY, name);
     setUser(name);
@@ -979,6 +1007,15 @@ function App() {
   };
   const upsert = async form => {
     const now = new Date().toISOString();
+    // Someone else saved this order (or commented on it) after the edit form opened:
+    // saving now would overwrite their change with stale data, so refuse.
+    if (editing) {
+      const liveNow = orders.find(o => o.id === editing.id);
+      if (liveNow && liveNow.updatedAt !== editing.updatedAt) {
+        window.alert('Not saved: this work order was updated by someone else while your edit form was open. Copy anything you need from the form, then cancel and reopen the order to see the latest version.');
+        throw new Error('edit conflict');
+      }
+    }
     try {
       if (editing) {
         const current = orders.find(o => o.id === editing.id) || editing;
@@ -1105,9 +1142,25 @@ function App() {
   const BACKUP_DUE_MS = 30 * 24 * 60 * 60 * 1000;
   const backupDue = synced && orders.length > 0 && lastBackup !== undefined && (!lastBackup || Date.now() - Date.parse(lastBackup) > BACKUP_DUE_MS);
   let visible = orders.filter(o => (statusFilter === 'Archived' ? isArchived(o) : !isArchived(o) && (statusFilter === 'All' || o.status === statusFilter)) && (!brandFilter || o.brand === brandFilter) && (!meOnly || o.name === user || assigneesOf(o).includes(user) || assigneesOf(o).length === 0) && (!search || ((o.projectName || '') + ' ' + (o.description || '') + ' ' + (o.brand || '') + ' ' + typeLabel(o)).toLowerCase().includes(search.toLowerCase())));
-  // Rush first, then unassigned active work so it gets claimed, then assigned active work, Done last.
+  // Default: rush first, then unassigned active work so it gets claimed, then assigned active, closed last.
   const rank = o => isClosed(o) ? 3 : o.rush ? 0 : assigneesOf(o).length ? 2 : 1;
+  const SORT_KEYS = {
+    project: o => (o.projectName || '').toLowerCase(),
+    type: o => typeLabel(o).toLowerCase(),
+    brand: o => (o.brand || '').toLowerCase(),
+    requested: o => (o.name || '').toLowerCase(),
+    assigned: o => (assigneesOf(o)[0] || '').toLowerCase(),
+    due: o => o.dueDate || '9999-99-99',
+    status: o => STATUSES.indexOf(o.status)
+  };
   visible = visible.slice().sort((a, b) => {
+    if (sortCol) {
+      const ka = SORT_KEYS[sortCol](a),
+        kb = SORT_KEYS[sortCol](b);
+      const cmp = ka < kb ? -1 : ka > kb ? 1 : 0;
+      if (cmp !== 0) return sortDir === 'asc' ? cmp : -cmp;
+      return (a.dueDate || '9999').localeCompare(b.dueDate || '9999');
+    }
     if (rank(a) !== rank(b)) return rank(a) - rank(b);
     return (a.dueDate || '9999').localeCompare(b.dueDate || '9999');
   });
@@ -1189,15 +1242,11 @@ function App() {
     }
   }, lbl)))), view === 'list' && /*#__PURE__*/React.createElement("div", {
     className: "board"
-  }, /*#__PURE__*/React.createElement("table", null, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Project"), /*#__PURE__*/React.createElement("th", {
-    className: "hide-sm"
-  }, "Type"), /*#__PURE__*/React.createElement("th", {
-    className: "hide-sm"
-  }, "Brand"), /*#__PURE__*/React.createElement("th", {
-    className: "hide-sm"
-  }, "Requested by"), /*#__PURE__*/React.createElement("th", {
-    className: "hide-sm"
-  }, "Assigned to"), /*#__PURE__*/React.createElement("th", null, "Due date"), /*#__PURE__*/React.createElement("th", null, "Status"))), /*#__PURE__*/React.createElement("tbody", null, !synced && /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("td", {
+  }, /*#__PURE__*/React.createElement("table", null, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, [['project', 'Project', ''], ['type', 'Type', 'hide-sm'], ['brand', 'Brand', 'hide-sm'], ['requested', 'Requested by', 'hide-sm'], ['assigned', 'Assigned to', 'hide-sm'], ['due', 'Due date', ''], ['status', 'Status', '']].map(([key, label, cls]) => /*#__PURE__*/React.createElement("th", {
+    key: key,
+    className: (cls + ' sortable').trim(),
+    onClick: () => clickHeader(key)
+  }, label, sortCol === key ? sortDir === 'asc' ? ' \u25B2' : ' \u25BC' : '')))), /*#__PURE__*/React.createElement("tbody", null, !synced && /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("td", {
     colSpan: "7",
     className: "empty"
   }, "Loading work orders from the shared board\u2026")), synced && visible.length === 0 && /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("td", {
