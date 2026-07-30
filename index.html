@@ -115,7 +115,14 @@
   }
 
   .board { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); overflow: auto; }
-  table { width: 100%; border-collapse: collapse; }
+  table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+  /* Fixed-layout column widths; Project takes the remainder. Hidden columns drop out cleanly. */
+  thead th:nth-child(2) { width: 15%; }
+  thead th:nth-child(3) { width: 15%; }
+  thead th:nth-child(4) { width: 9%; }
+  thead th:nth-child(5) { width: 10%; }
+  thead th:nth-child(6) { width: 170px; }
+  thead th:nth-child(7) { width: 165px; }
   thead th {
     position: sticky; top: 0; background: var(--surface); z-index: 1;
     text-align: left; font-size: 13px; font-weight: 700; color: var(--gray);
@@ -153,6 +160,7 @@
   }
   td.proj { max-width: 460px; font-weight: 700; }
   td.dim2 { color: var(--gray); max-width: 230px; }
+  td.brand-cell { max-width: 190px; }
   td.due { font-variant-numeric: tabular-nums; }
   .ovd { color: var(--red); font-weight: 700; }
   select.status {
@@ -288,6 +296,7 @@
     .hide-sm { display: none; }
     .btn-new { padding: 8px 12px; font-size: 14px; }
     .names { grid-template-columns: repeat(2, 1fr); }
+    table { table-layout: auto; }
     .cal-grid.month .cal-cell { min-height: 56px; padding: 3px; }
     .cal-chip { font-size: 10px; padding: 2px 4px; }
     .cal-label { font-size: 12.5px; }
@@ -399,6 +408,11 @@ function statusClass(status) {
 }
 function assigneesOf(order) {
   return order.assignees || (order.assignedTo ? [order.assignedTo] : []);
+}
+// Compact form for the table: first assignee plus a count, matching the type column.
+function assigneesLabelShort(order) {
+  const a = assigneesOf(order);
+  return a.length > 1 ? a[0] + ' +' + (a.length - 1) : a[0] || '';
 }
 function NamePicker({
   onPick
@@ -1203,12 +1217,14 @@ function App() {
     className: "hide-sm dim2",
     title: typeLabel(o)
   }, typeLabelShort(o)), /*#__PURE__*/React.createElement("td", {
-    className: "hide-sm"
+    className: "hide-sm brand-cell",
+    title: o.brand
   }, o.brand), /*#__PURE__*/React.createElement("td", {
     className: "hide-sm"
   }, o.name), /*#__PURE__*/React.createElement("td", {
-    className: "hide-sm"
-  }, assigneesOf(o).length ? assigneesOf(o).join(', ') : /*#__PURE__*/React.createElement("button", {
+    className: "hide-sm",
+    title: assigneesOf(o).join(', ')
+  }, assigneesOf(o).length ? assigneesLabelShort(o) : /*#__PURE__*/React.createElement("button", {
     className: "btn-claim",
     onClick: e => {
       e.stopPropagation();
