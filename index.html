@@ -152,6 +152,10 @@
   .comments-empty { color: var(--gray); font-size: 13.5px; }
   .comment { margin-bottom: 10px; }
   .comment-meta { font-size: 12.5px; color: var(--gray); margin-bottom: 2px; }
+  .comment-edit-btn {
+    border: none; background: none; color: var(--accent-dark); text-decoration: underline;
+    cursor: pointer; padding: 0; font-size: 12px; margin-left: 8px;
+  }
   .comment-text { font-size: 14.5px; white-space: pre-wrap; }
   .txt-link { color: var(--accent-dark); word-break: break-all; }
   thead th.sortable { cursor: pointer; user-select: none; }
@@ -681,9 +685,11 @@ function OrderForm({
 }
 function OrderDetail({
   order,
+  user,
   onStatus,
   onClaim,
   onComment,
+  onEditComment,
   onEdit,
   onDuplicate,
   onDelete,
@@ -691,6 +697,8 @@ function OrderDetail({
   fetchFile
 }) {
   const [draft, setDraft] = useState('');
+  const [editingComment, setEditingComment] = useState(-1);
+  const [editDraft, setEditDraft] = useState('');
   const [fileBusy, setFileBusy] = useState('');
   const openFile = (att, download) => {
     setFileBusy(att.fileId + (download ? ':d' : ':v'));
@@ -761,7 +769,28 @@ function OrderDetail({
     className: "comment"
   }, /*#__PURE__*/React.createElement("div", {
     className: "comment-meta"
-  }, c.by, " \xB7 ", fmtDate(c.at.slice(0, 10))), /*#__PURE__*/React.createElement("div", {
+  }, c.by, " \xB7 ", fmtDate((c.at || '').slice(0, 10)), c.editedAt ? ' · edited' : '', c.by === user && editingComment !== i && /*#__PURE__*/React.createElement("button", {
+    className: "comment-edit-btn",
+    onClick: () => {
+      setEditingComment(i);
+      setEditDraft(c.text);
+    }
+  }, "Edit")), editingComment === i ? /*#__PURE__*/React.createElement("div", {
+    className: "comment-add"
+  }, /*#__PURE__*/React.createElement("textarea", {
+    maxLength: 2000,
+    value: editDraft,
+    onChange: e => setEditDraft(e.target.value)
+  }), /*#__PURE__*/React.createElement("button", {
+    className: "btn",
+    onClick: () => {
+      onEditComment(i, editDraft);
+      setEditingComment(-1);
+    }
+  }, "Save comment"), /*#__PURE__*/React.createElement("button", {
+    className: "btn",
+    onClick: () => setEditingComment(-1)
+  }, "Cancel")) : /*#__PURE__*/React.createElement("div", {
     className: "comment-text"
   }, linkify(c.text)))), /*#__PURE__*/React.createElement("div", {
     className: "comment-add"
@@ -1084,6 +1113,22 @@ function App() {
     delete next.assignedTo;
     writeOrder(next);
   };
+  const editComment = (id, index, text) => {
+    const t = text.trim();
+    if (!t) return;
+    const o = orders.find(x => x.id === id);
+    if (!o) return;
+    const comments = (o.comments || []).map((c, i) => i === index ? {
+      ...c,
+      text: t,
+      editedAt: new Date().toISOString()
+    } : c);
+    writeOrder({
+      ...o,
+      comments: comments,
+      updatedAt: new Date().toISOString()
+    });
+  };
   const addComment = (id, text) => {
     const t = text.trim();
     if (!t) return;
@@ -1313,9 +1358,11 @@ function App() {
   }), detail && !showForm && /*#__PURE__*/React.createElement(OrderDetail, {
     order: detail,
     fetchFile: fetchFile,
+    user: user,
     onStatus: s => setStatus(detail.id, s),
     onClaim: () => claim(detail.id),
     onComment: t => addComment(detail.id, t),
+    onEditComment: (i, t) => editComment(detail.id, i, t),
     onEdit: () => {
       setEditing(detail);
       setDetailId(null);
