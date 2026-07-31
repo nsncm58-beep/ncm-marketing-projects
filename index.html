@@ -132,6 +132,13 @@
   tbody tr:last-child td { border-bottom: none; }
   tbody tr { cursor: pointer; }
   tbody tr:hover { background: #F3F9FD; }
+  tbody tr.divider-row { cursor: default; }
+  tbody tr.divider-row:hover { background: none; }
+  tbody tr.divider-row td {
+    background: #FBFCFD; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
+    padding: 5px 12px; font-size: 12px; font-weight: 700; color: var(--gray);
+    text-transform: uppercase; letter-spacing: 0.06em;
+  }
   tbody tr.done-row td { color: var(--gray); }
   tbody tr.done-row td.proj { font-weight: 500; }
   tbody tr.unassigned-row td:first-child { box-shadow: inset 3px 0 0 var(--amber); }
@@ -1199,6 +1206,10 @@ function App() {
     status: o => STATUSES.indexOf(o.status)
   };
   visible = visible.slice().sort((a, b) => {
+    // Closed work always sits below active work, whatever the column sort is.
+    const ca = isClosed(a) ? 1 : 0,
+      cb = isClosed(b) ? 1 : 0;
+    if (ca !== cb) return ca - cb;
     if (sortCol) {
       const ka = SORT_KEYS[sortCol](a),
         kb = SORT_KEYS[sortCol](b);
@@ -1209,6 +1220,9 @@ function App() {
     if (rank(a) !== rank(b)) return rank(a) - rank(b);
     return (a.dueDate || '9999').localeCompare(b.dueDate || '9999');
   });
+  // Where the closed block starts, so the list can show a divider above it.
+  const firstClosedIdx = visible.findIndex(isClosed);
+  const closedCount = visible.length - (firstClosedIdx === -1 ? visible.length : firstClosedIdx);
   const detail = orders.find(o => o.id === detailId);
   return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("header", {
     className: "site"
@@ -1297,8 +1311,13 @@ function App() {
   }, "Loading work orders from the shared board\u2026")), synced && visible.length === 0 && /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("td", {
     colSpan: "7",
     className: "empty"
-  }, orders.length === 0 ? 'No work orders yet. Select + New work order to submit the first one.' : statusFilter === 'Archived' ? 'No archived work orders. Done and canceled orders move here three months after they close.' : 'No work orders match these filters. Clear a filter or adjust the search.')), visible.map(o => /*#__PURE__*/React.createElement("tr", {
-    key: o.id,
+  }, orders.length === 0 ? 'No work orders yet. Select + New work order to submit the first one.' : statusFilter === 'Archived' ? 'No archived work orders. Done and canceled orders move here three months after they close.' : 'No work orders match these filters. Clear a filter or adjust the search.')), visible.map((o, idx) => /*#__PURE__*/React.createElement(React.Fragment, {
+    key: o.id
+  }, idx === firstClosedIdx && idx > 0 && /*#__PURE__*/React.createElement("tr", {
+    className: "divider-row"
+  }, /*#__PURE__*/React.createElement("td", {
+    colSpan: "7"
+  }, "Closed (", closedCount, ")")), /*#__PURE__*/React.createElement("tr", {
     className: (isClosed(o) ? 'done-row' : o.rush ? 'rush-row' : assigneesOf(o).length === 0 ? 'unassigned-row' : '') + (flashIds.has(o.id) ? ' row-flash' : ''),
     onClick: () => setDetailId(o.id)
   }, /*#__PURE__*/React.createElement("td", {
@@ -1336,7 +1355,7 @@ function App() {
     onChange: e => setStatus(o.id, e.target.value)
   }, STATUSES.map(s => /*#__PURE__*/React.createElement("option", {
     key: s
-  }, s))))))))), view !== 'list' && /*#__PURE__*/React.createElement(Calendar, {
+  }, s)))))))))), view !== 'list' && /*#__PURE__*/React.createElement(Calendar, {
     mode: view,
     cursorDate: new Date(cursor),
     orders: visible,
