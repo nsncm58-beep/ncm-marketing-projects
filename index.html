@@ -153,7 +153,11 @@
     font-size: 12px; font-weight: 700; padding: 1px 7px; margin-right: 8px;
   }
   .cmt { color: var(--gray); font-weight: 400; font-size: 13px; }
-  .overdue-count { color: var(--red); font-weight: 700; font-size: 14px; padding: 0 4px; }
+  .overdue-count {
+    color: var(--red); font-weight: 700; font-size: 14px; padding: 7px 12px;
+    border: 1px solid #E5C0BA; border-radius: var(--radius); background: var(--surface); cursor: pointer;
+  }
+  .overdue-count.active { background: var(--red); border-color: var(--red); color: #fff; }
   .comments { border-top: 1px solid var(--line); margin-top: 14px; padding-top: 12px; }
   .comments-title { font-size: 13px; font-weight: 700; color: var(--gray); margin-bottom: 8px; }
   .comments-empty { color: var(--gray); font-size: 13.5px; }
@@ -361,6 +365,8 @@ function isArchived(order) {
 const USER_KEY = 'ncm_mktg_user_v1';
 // Per-device view preferences (filters, view, sort) so a reload keeps the board how you left it.
 const PREFS_KEY = 'ncm_mktg_prefs_v1';
+// Captured at load, before the hash-sync effect can strip it: #order=<id> deep links.
+const INITIAL_HASH = window.location.hash;
 let savedPrefs = {};
 try {
   savedPrefs = JSON.parse(localStorage.getItem(PREFS_KEY)) || {};
@@ -569,10 +575,24 @@ function OrderForm({
     setSaving(true);
     Promise.resolve(onSave(clean)).catch(() => setSaving(false));
   };
+
+  // Anything typed or toggled marks the form dirty; closing a dirty form asks first.
+  const [dirty, setDirty] = useState(false);
+  const firstRender = useRef(true);
+  useEffect(() => {
+    if (firstRender.current) {
+      firstRender.current = false;
+      return;
+    }
+    setDirty(true);
+  }, [form]);
+  const attemptCancel = () => {
+    if (!dirty || window.confirm('Close without saving? Anything entered in the form will be lost.')) onCancel();
+  };
   return /*#__PURE__*/React.createElement("div", {
     className: "overlay",
     onMouseDown: e => {
-      if (e.target === e.currentTarget) onCancel();
+      if (e.target === e.currentTarget) attemptCancel();
     }
   }, /*#__PURE__*/React.createElement("div", {
     className: "modal"
@@ -689,7 +709,7 @@ function OrderForm({
     className: "modal-actions"
   }, /*#__PURE__*/React.createElement("button", {
     className: "btn",
-    onClick: onCancel
+    onClick: attemptCancel
   }, "Cancel"), /*#__PURE__*/React.createElement("button", {
     className: "btn primary",
     disabled: saving,
@@ -736,10 +756,21 @@ function OrderDetail({
       setDraft('');
     }
   };
+  const attemptClose = () => {
+    if (!draft.trim() || window.confirm('Close without posting the comment you typed?')) onClose();
+  };
+  const [copied, setCopied] = useState(false);
+  const copyLink = () => {
+    const url = window.location.origin + window.location.pathname + '#order=' + encodeURIComponent(order.id);
+    navigator.clipboard.writeText(url).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    }).catch(() => window.prompt('Copy this link:', url));
+  };
   return /*#__PURE__*/React.createElement("div", {
     className: "overlay",
     onMouseDown: e => {
-      if (e.target === e.currentTarget) onClose();
+      if (e.target === e.currentTarget) attemptClose();
     }
   }, /*#__PURE__*/React.createElement("div", {
     className: "modal"
@@ -827,8 +858,11 @@ function OrderDetail({
     className: "btn",
     onClick: onEdit
   }, "Edit"), /*#__PURE__*/React.createElement("button", {
+    className: "btn",
+    onClick: copyLink
+  }, copied ? 'Copied' : 'Copy link'), /*#__PURE__*/React.createElement("button", {
     className: "btn primary",
-    onClick: onClose
+    onClick: attemptClose
   }, "Close"))));
 }
 function Calendar({
@@ -1209,9 +1243,29 @@ function App() {
   });
   counts.Archived = orders.filter(isArchived).length;
   const overdueCount = orders.filter(isOverdue).length;
+  const [overdueOnly, setOverdueOnly] = useState(false);
+  useEffect(() => {
+    if (overdueCount === 0) setOverdueOnly(false);
+  }, [overdueCount]);
+
+  // Deep links: #order=<id> opens that order once the board has loaded.
+  useEffect(() => {
+    if (!synced) return;
+    const m = INITIAL_HASH.match(/^#order=(.+)$/);
+    if (m) {
+      const id = decodeURIComponent(m[1]);
+      if (orders.some(o => o.id === id)) setDetailId(id);
+    }
+  }, [synced]);
+
+  // Keep the address bar in step with the open order so the URL is always shareable.
+  useEffect(() => {
+    const base = window.location.pathname + window.location.search;
+    if (detailId) history.replaceState(null, '', base + '#order=' + encodeURIComponent(detailId));else if (window.location.hash) history.replaceState(null, '', base);
+  }, [detailId]);
   const BACKUP_DUE_MS = 30 * 24 * 60 * 60 * 1000;
   const backupDue = synced && orders.length > 0 && lastBackup !== undefined && (!lastBackup || Date.now() - Date.parse(lastBackup) > BACKUP_DUE_MS);
-  let visible = orders.filter(o => (statusFilter === 'Archived' ? isArchived(o) : !isArchived(o) && (statusFilter === 'All' || o.status === statusFilter)) && (!brandFilter || o.brand === brandFilter) && (!meOnly || o.name === user || assigneesOf(o).includes(user) || assigneesOf(o).length === 0) && (!search || ((o.projectName || '') + ' ' + (o.description || '') + ' ' + (o.brand || '') + ' ' + typeLabel(o)).toLowerCase().includes(search.toLowerCase())));
+  let visible = orders.filter(o => (statusFilter === 'Archived' ? isArchived(o) : !isArchived(o) && (statusFilter === 'All' || o.status === statusFilter)) && (!brandFilter || o.brand === brandFilter) && (!overdueOnly || isOverdue(o)) && (!meOnly || o.name === user || assigneesOf(o).includes(user) || assigneesOf(o).length === 0) && (!search || ((o.projectName || '') + ' ' + (o.description || '') + ' ' + (o.brand || '') + ' ' + typeLabel(o)).toLowerCase().includes(search.toLowerCase())));
   // Default: rush first, then unassigned active work so it gets claimed, then assigned active, closed last.
   const rank = o => isClosed(o) ? 3 : o.rush ? 0 : assigneesOf(o).length ? 2 : 1;
   const SORT_KEYS = {
@@ -1286,8 +1340,9 @@ function App() {
     key: s,
     className: 'chip' + (statusFilter === s ? ' active' : ''),
     onClick: () => setStatusFilter(s)
-  }, s, " (", counts[s], ")"))), overdueCount > 0 && /*#__PURE__*/React.createElement("div", {
-    className: "overdue-count"
+  }, s, " (", counts[s], ")"))), overdueCount > 0 && /*#__PURE__*/React.createElement("button", {
+    className: 'overdue-count' + (overdueOnly ? ' active' : ''),
+    onClick: () => setOverdueOnly(v => !v)
   }, overdueCount, " overdue"), /*#__PURE__*/React.createElement("select", {
     value: brandFilter,
     onChange: e => setBrandFilter(e.target.value)
