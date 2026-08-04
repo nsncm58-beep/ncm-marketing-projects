@@ -359,6 +359,12 @@ function isArchived(order) {
   return isClosed(order) && Date.now() - Date.parse(order.doneAt || order.updatedAt) > ARCHIVE_MS;
 }
 const USER_KEY = 'ncm_mktg_user_v1';
+// Per-device view preferences (filters, view, sort) so a reload keeps the board how you left it.
+const PREFS_KEY = 'ncm_mktg_prefs_v1';
+let savedPrefs = {};
+try {
+  savedPrefs = JSON.parse(localStorage.getItem(PREFS_KEY)) || {};
+} catch (e) {}
 
 // Files on Done orders are removed 48 hours after completion so storage never accumulates.
 // Runs on every snapshot; the writes are idempotent (once purged, nothing left to purge).
@@ -907,15 +913,15 @@ function App() {
   const [syncError, setSyncError] = useState('');
   const [lastBackup, setLastBackup] = useState(undefined);
   const [user, setUser] = useState(() => localStorage.getItem(USER_KEY) || '');
-  const [statusFilter, setStatusFilter] = useState('All');
-  const [brandFilter, setBrandFilter] = useState('');
-  const [meOnly, setMeOnly] = useState(false);
+  const [statusFilter, setStatusFilter] = useState(() => ['All', ...STATUSES, 'Archived'].includes(savedPrefs.statusFilter) ? savedPrefs.statusFilter : 'All');
+  const [brandFilter, setBrandFilter] = useState(() => BRANDS.includes(savedPrefs.brandFilter) ? savedPrefs.brandFilter : '');
+  const [meOnly, setMeOnly] = useState(!!savedPrefs.meOnly);
   const [search, setSearch] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
   const [prefill, setPrefill] = useState(null);
   const [detailId, setDetailId] = useState(null);
-  const [view, setView] = useState('list');
+  const [view, setView] = useState(() => ['list', 'month', 'week'].includes(savedPrefs.view) ? savedPrefs.view : 'list');
   const [cursor, setCursor] = useState(() => {
     const d = new Date();
     d.setHours(0, 0, 0, 0);
@@ -999,8 +1005,8 @@ function App() {
   };
 
   // Column sorting: click a header for ascending, again for descending, a third time for the default order.
-  const [sortCol, setSortCol] = useState(null);
-  const [sortDir, setSortDir] = useState('asc');
+  const [sortCol, setSortCol] = useState(() => ['project', 'type', 'brand', 'requested', 'assigned', 'due', 'status'].includes(savedPrefs.sortCol) ? savedPrefs.sortCol : null);
+  const [sortDir, setSortDir] = useState(savedPrefs.sortDir === 'desc' ? 'desc' : 'asc');
   const clickHeader = key => {
     if (sortCol !== key) {
       setSortCol(key);
@@ -1010,6 +1016,18 @@ function App() {
       setSortDir('asc');
     }
   };
+  useEffect(() => {
+    try {
+      localStorage.setItem(PREFS_KEY, JSON.stringify({
+        statusFilter,
+        brandFilter,
+        meOnly,
+        view,
+        sortCol,
+        sortDir
+      }));
+    } catch (e) {}
+  }, [statusFilter, brandFilter, meOnly, view, sortCol, sortDir]);
   const pickUser = name => {
     localStorage.setItem(USER_KEY, name);
     setUser(name);
