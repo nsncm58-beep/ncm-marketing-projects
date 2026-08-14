@@ -367,6 +367,47 @@ const USER_KEY = 'ncm_mktg_user_v1';
 const PREFS_KEY = 'ncm_mktg_prefs_v1';
 // Captured at load, before the hash-sync effect can strip it: #order=<id> deep links.
 const INITIAL_HASH = window.location.hash;
+
+// Teams notifications: paste the Power Automate webhook URL between the quotes to turn them on.
+// Teams channel > ... > Workflows > "Post to a channel when a webhook request is received" > copy URL.
+const TEAMS_WEBHOOK_URL = '';
+function orderLink(orderId) {
+  return window.location.origin + window.location.pathname + '#order=' + encodeURIComponent(orderId);
+}
+function notify(text, orderId) {
+  const hook = TEAMS_WEBHOOK_URL || window.__ncmTestWebhook;
+  if (!hook) return;
+  const body = [{
+    type: 'TextBlock',
+    text: text,
+    wrap: true
+  }];
+  if (orderId) body.push({
+    type: 'TextBlock',
+    text: '[Open the order](' + orderLink(orderId) + ')',
+    wrap: true
+  });
+  try {
+    fetch(hook, {
+      method: 'POST',
+      mode: 'no-cors',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        type: 'message',
+        attachments: [{
+          contentType: 'application/vnd.microsoft.card.adaptive',
+          content: {
+            type: 'AdaptiveCard',
+            version: '1.4',
+            body: body
+          }
+        }]
+      })
+    }).catch(() => {});
+  } catch (e) {}
+}
 let savedPrefs = {};
 try {
   savedPrefs = JSON.parse(localStorage.getItem(PREFS_KEY)) || {};
@@ -1129,6 +1170,7 @@ function App() {
           createdAt: now,
           updatedAt: now
         });
+        notify((form.rush ? 'New rush work order: ' : 'New work order: ') + form.projectName + ' (' + form.brand + '), due ' + fmtDate(form.dueDate) + ', from ' + form.name, id);
       }
     } catch (e) {
       setSyncError('Could not save the files. ' + (e && e.message || ''));
@@ -1150,7 +1192,7 @@ function App() {
   };
   const setStatus = (id, status) => {
     const o = orders.find(x => x.id === id);
-    if (!o) return;
+    if (!o || o.status === status) return;
     const next = {
       ...o,
       status,
@@ -1160,6 +1202,7 @@ function App() {
       if (!next.doneAt) next.doneAt = next.updatedAt;
     } else delete next.doneAt;
     writeOrder(next);
+    if (status === 'Done') notify(user + ' marked done: ' + o.projectName + ' (' + o.brand + ')', o.id);
   };
   const claim = id => {
     const target = orders.find(o => o.id === id);
@@ -1171,6 +1214,7 @@ function App() {
     };
     delete next.assignedTo;
     writeOrder(next);
+    notify(user + ' claimed: ' + target.projectName + ' (' + target.brand + ')', target.id);
   };
   const editComment = (id, index, text) => {
     const t = text.trim();
