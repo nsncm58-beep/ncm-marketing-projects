@@ -368,14 +368,14 @@ const PREFS_KEY = 'ncm_mktg_prefs_v1';
 // Captured at load, before the hash-sync effect can strip it: #order=<id> deep links.
 const INITIAL_HASH = window.location.hash;
 
-// Teams notifications: paste the Power Automate webhook URL between the quotes to turn them on.
-// Teams channel > ... > Workflows > "Post to a channel when a webhook request is received" > copy URL.
-const TEAMS_WEBHOOK_URL = 'https://defaultdcfe2a88dfac4e86a0336e5c6cb6a6.3b.environment.api.powerplatform.com:443/powerautomate/automations/direct/cu/27/workflows/851a4f4e33e74084913727f96aa6aec1/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=Zgy1C5jWZHILX3wocRg0tnz1ODUETMlkhePfI3m4I4o';
+// Teams notifications: the webhook URL lives in the database at meta/webhookUrl, not in this
+// public file. Update it there and every open board picks it up; no redeploy needed.
 function orderLink(orderId) {
   return window.location.origin + window.location.pathname + '#order=' + encodeURIComponent(orderId);
 }
+let teamsWebhookUrl = '';
 function notify(text, orderId) {
-  const hook = TEAMS_WEBHOOK_URL || window.__ncmTestWebhook;
+  const hook = teamsWebhookUrl || window.__ncmTestWebhook;
   if (!hook) return;
   const body = [{
     type: 'TextBlock',
@@ -390,7 +390,7 @@ function notify(text, orderId) {
   try {
     fetch(hook, {
       method: 'POST',
-      mode: 'no-cors',
+      mode: 'cors',
       headers: {
         'Content-Type': 'application/json'
       },
@@ -1036,12 +1036,16 @@ function App() {
         attached = true;
         ref.on('value', onValue, onError);
         db.ref('meta/lastBackup').on('value', s => setLastBackup(s.val() || null), () => {});
+        db.ref('meta/webhookUrl').on('value', s => {
+          teamsWebhookUrl = s.val() || '';
+        }, () => {});
       }
     });
     return () => {
       unsubAuth();
       ref.off('value', onValue);
       db.ref('meta/lastBackup').off();
+      db.ref('meta/webhookUrl').off();
     };
   }, []);
 
