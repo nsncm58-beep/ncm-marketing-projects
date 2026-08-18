@@ -401,6 +401,30 @@ function notifyAssignment(names, actor, order) {
     } catch (e) {}
   });
 }
+// Unassigned submissions ping the whole team (minus the submitter) so nothing arrives silently.
+function notifyUnassigned(actor, order) {
+  const hook = assignWebhookUrl || window.__ncmTestAssignHook;
+  if (!hook) return;
+  Object.keys(assignEmailMap).forEach(name => {
+    if (name === actor) return;
+    const email = assignEmailMap[name];
+    if (!email) return;
+    const text = actor + ' submitted an unassigned ' + (order.rush ? 'rush ' : '') + 'work order: ' + order.projectName + ' (' + order.brand + '), due ' + fmtDate(order.dueDate) + '. Open it to claim: ' + orderLink(order.id);
+    try {
+      fetch(hook, {
+        method: 'POST',
+        mode: 'cors',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          email: email,
+          text: text
+        })
+      }).catch(() => {});
+    } catch (e) {}
+  });
+}
 function notify(text, orderId) {
   const hook = teamsWebhookUrl || window.__ncmTestWebhook;
   if (!hook) return;
@@ -1216,7 +1240,10 @@ function App() {
           updatedAt: now
         });
         notify((form.rush ? 'New rush work order: ' : 'New work order: ') + form.projectName + ' (' + form.brand + '), due ' + fmtDate(form.dueDate) + ', from ' + form.name, id);
-        notifyAssignment(form.assignees, user, {
+        if ((form.assignees || []).length) notifyAssignment(form.assignees, user, {
+          ...form,
+          id: id
+        });else notifyUnassigned(user, {
           ...form,
           id: id
         });
