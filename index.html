@@ -382,10 +382,9 @@ function notifyAssignment(names, actor, order) {
   const hook = assignWebhookUrl || window.__ncmTestAssignHook;
   if (!hook) return;
   (names || []).forEach(name => {
-    if (name === actor) return;
     const email = assignEmailMap[name];
     if (!email) return;
-    const text = actor + ' assigned you a work order: ' + order.projectName + ' (' + order.brand + '), due ' + fmtDate(order.dueDate) + '. Open it: ' + orderLink(order.id);
+    const text = (name === actor ? 'You assigned yourself a work order: ' : actor + ' assigned you a work order: ') + order.projectName + ' (' + order.brand + '), due ' + fmtDate(order.dueDate) + '. Open it: ' + orderLink(order.id);
     try {
       fetch(hook, {
         method: 'POST',
