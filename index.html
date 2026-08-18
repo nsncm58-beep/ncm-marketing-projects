@@ -364,7 +364,7 @@ function isArchived(order) {
 }
 const USER_KEY = 'ncm_mktg_user_v1';
 // Per-device view preferences (filters, view, sort) so a reload keeps the board how you left it.
-const PREFS_KEY = 'ncm_mktg_prefs_v1';
+const PREFS_KEY = 'ncm_mktg_prefs_v2';
 // Captured at load, before the hash-sync effect can strip it: #order=<id> deep links.
 const INITIAL_HASH = window.location.hash;
 
@@ -1017,7 +1017,7 @@ function App() {
   const [user, setUser] = useState(() => localStorage.getItem(USER_KEY) || '');
   const [statusFilter, setStatusFilter] = useState(() => ['All', ...STATUSES, 'Archived'].includes(savedPrefs.statusFilter) ? savedPrefs.statusFilter : 'All');
   const [brandFilter, setBrandFilter] = useState(() => BRANDS.includes(savedPrefs.brandFilter) ? savedPrefs.brandFilter : '');
-  const [meOnly, setMeOnly] = useState(!!savedPrefs.meOnly);
+  const [meOnly, setMeOnly] = useState(savedPrefs.meOnly === undefined ? true : !!savedPrefs.meOnly);
   const [search, setSearch] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
