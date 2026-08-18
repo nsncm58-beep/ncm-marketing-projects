@@ -374,6 +374,33 @@ function orderLink(orderId) {
   return window.location.origin + window.location.pathname + '#order=' + encodeURIComponent(orderId);
 }
 let teamsWebhookUrl = '';
+// Targeted assignment alerts: personal Flow-bot chats via a second flow. The webhook URL and
+// the name-to-email map both live in the database (meta/assignWebhookUrl, meta/emails).
+let assignWebhookUrl = '';
+let assignEmailMap = {};
+function notifyAssignment(names, actor, order) {
+  const hook = assignWebhookUrl || window.__ncmTestAssignHook;
+  if (!hook) return;
+  (names || []).forEach(name => {
+    if (name === actor) return;
+    const email = assignEmailMap[name];
+    if (!email) return;
+    const text = actor + ' assigned you a work order: ' + order.projectName + ' (' + order.brand + '), due ' + fmtDate(order.dueDate) + '. Open it: ' + orderLink(order.id);
+    try {
+      fetch(hook, {
+        method: 'POST',
+        mode: 'cors',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          email: email,
+          text: text
+        })
+      }).catch(() => {});
+    } catch (e) {}
+  });
+}
 function notify(text, orderId) {
   const hook = teamsWebhookUrl || window.__ncmTestWebhook;
   if (!hook) return;
@@ -1039,6 +1066,12 @@ function App() {
         db.ref('meta/webhookUrl').on('value', s => {
           teamsWebhookUrl = s.val() || '';
         }, () => {});
+        db.ref('meta/assignWebhookUrl').on('value', s => {
+          assignWebhookUrl = s.val() || '';
+        }, () => {});
+        db.ref('meta/emails').on('value', s => {
+          assignEmailMap = s.val() || {};
+        }, () => {});
       }
     });
     return () => {
@@ -1046,6 +1079,8 @@ function App() {
       ref.off('value', onValue);
       db.ref('meta/lastBackup').off();
       db.ref('meta/webhookUrl').off();
+      db.ref('meta/assignWebhookUrl').off();
+      db.ref('meta/emails').off();
     };
   }, []);
 
@@ -1163,6 +1198,12 @@ function App() {
           attachments: atts,
           updatedAt: now
         });
+        const before = new Set(assigneesOf(current));
+        const added = (form.assignees || []).filter(n => !before.has(n));
+        notifyAssignment(added, user, {
+          ...current,
+          ...form
+        });
       } else {
         const id = 'wo-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7);
         const atts = await storeNewFiles(id, form.attachments);
@@ -1175,6 +1216,10 @@ function App() {
           updatedAt: now
         });
         notify((form.rush ? 'New rush work order: ' : 'New work order: ') + form.projectName + ' (' + form.brand + '), due ' + fmtDate(form.dueDate) + ', from ' + form.name, id);
+        notifyAssignment(form.assignees, user, {
+          ...form,
+          id: id
+        });
       }
     } catch (e) {
       setSyncError('Could not save the files. ' + (e && e.message || ''));
