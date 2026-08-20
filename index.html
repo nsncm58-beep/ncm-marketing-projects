@@ -384,7 +384,7 @@ function notifyAssignment(names, actor, order) {
   (names || []).forEach(name => {
     const email = assignEmailMap[name];
     if (!email) return;
-    const text = (name === actor ? 'You assigned yourself a work order: ' : actor + ' assigned you a work order: ') + order.projectName + ' (' + order.brand + '), due ' + fmtDate(order.dueDate) + '. Open it: ' + orderLink(order.id);
+    const text = (name === actor ? 'You assigned yourself a work order: ' : actor + ' assigned you a work order: ') + order.projectName + ' (' + order.brand + '), due ' + fmtDate(order.dueDate) + '. <a href="' + orderLink(order.id) + '">Open the order</a>';
     try {
       fetch(hook, {
         method: 'POST',
@@ -408,7 +408,7 @@ function notifyUnassigned(actor, order) {
     if (name === actor) return;
     const email = assignEmailMap[name];
     if (!email) return;
-    const text = actor + ' submitted an unassigned ' + (order.rush ? 'rush ' : '') + 'work order: ' + order.projectName + ' (' + order.brand + '), due ' + fmtDate(order.dueDate) + '. Open it to claim: ' + orderLink(order.id);
+    const text = actor + ' submitted an unassigned ' + (order.rush ? 'rush ' : '') + 'work order: ' + order.projectName + ' (' + order.brand + '), due ' + fmtDate(order.dueDate) + '. <a href="' + orderLink(order.id) + '">Open it to claim</a>';
     try {
       fetch(hook, {
         method: 'POST',
