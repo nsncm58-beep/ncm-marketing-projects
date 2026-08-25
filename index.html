@@ -1472,12 +1472,12 @@ function App() {
   }, b))), /*#__PURE__*/React.createElement("div", {
     className: "viewtoggle"
   }, /*#__PURE__*/React.createElement("button", {
-    className: !meOnly ? 'active' : '',
-    onClick: () => setMeOnly(false)
-  }, "Everyone"), /*#__PURE__*/React.createElement("button", {
     className: meOnly ? 'active' : '',
     onClick: () => setMeOnly(true)
-  }, "Me")), /*#__PURE__*/React.createElement("input", {
+  }, "Me"), /*#__PURE__*/React.createElement("button", {
+    className: !meOnly ? 'active' : '',
+    onClick: () => setMeOnly(false)
+  }, "Everyone")), /*#__PURE__*/React.createElement("input", {
     type: "search",
     placeholder: "Search projects",
     value: search,
