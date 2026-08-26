@@ -241,6 +241,10 @@
     cursor: pointer; padding: 0; font-size: 14px; text-align: left;
   }
   .file-size { color: var(--gray); font-size: 13px; }
+  tbody tr.trash-row { cursor: default; }
+  .log-list { margin-top: 14px; font-size: 13.5px; color: var(--gray); }
+  .log-title { font-weight: 700; font-size: 12.5px; margin-bottom: 6px; }
+  .log-line { padding: 2px 0; }
 
   .detail-grid { display: grid; grid-template-columns: 135px 1fr; row-gap: 10px; column-gap: 14px; font-size: 14.5px; }
   .detail-grid dt { color: var(--gray); font-size: 13px; font-weight: 700; padding-top: 1px; }
@@ -338,6 +342,19 @@ const STATUSES = ['Not started', 'In progress', 'Out for review', 'On hold', 'Do
 // and lose their files 48 hours after closing.
 function isClosed(order) {
   return order.status === 'Done' || order.status === 'Canceled';
+}
+// Deleted orders sit in the trash for 30 days (restorable, files kept), then are removed for good.
+const TRASH_MS = 30 * 24 * 60 * 60 * 1000;
+function emptyOldTrash(list) {
+  const now = Date.now();
+  list.forEach(o => {
+    if (o.deletedAt && now - Date.parse(o.deletedAt) > TRASH_MS) {
+      (o.attachments || []).forEach(a => {
+        if (a.fileId) db.ref('files/' + a.fileId).remove().catch(() => {});
+      });
+      db.ref('trash/' + safeId(o.id)).remove().catch(() => {});
+    }
+  });
 }
 
 // Shared live storage for the whole team.
@@ -1034,6 +1051,8 @@ function Calendar({
 }
 function App() {
   const [orders, setOrders] = useState([]);
+  const [trashed, setTrashed] = useState([]);
+  const [logEntries, setLogEntries] = useState([]);
   const [synced, setSynced] = useState(false);
   const [syncError, setSyncError] = useState('');
   const [lastBackup, setLastBackup] = useState(undefined);
@@ -1095,6 +1114,15 @@ function App() {
         db.ref('meta/emails').on('value', s => {
           assignEmailMap = s.val() || {};
         }, () => {});
+        db.ref('trash').on('value', s => {
+          const list = Object.values(s.val() || {});
+          setTrashed(list);
+          emptyOldTrash(list);
+        }, () => {});
+        db.ref('log').limitToLast(50).on('value', s => {
+          const v = s.val() || {};
+          setLogEntries(Object.keys(v).sort().reverse().map(k => v[k]));
+        }, () => {});
       }
     });
     return () => {
@@ -1104,6 +1132,8 @@ function App() {
       db.ref('meta/webhookUrl').off();
       db.ref('meta/assignWebhookUrl').off();
       db.ref('meta/emails').off();
+      db.ref('trash').off();
+      db.ref('log').off();
     };
   }, []);
 
@@ -1346,13 +1376,43 @@ function App() {
     }
   };
   const remove = id => {
-    if (!window.confirm('Are you sure? This permanently deletes the work order, its comments and its files for the whole team. This cannot be undone.')) return;
+    if (!window.confirm('Are you sure? This moves the work order to the trash for the whole team. It can be restored from the Trash view for 30 days; after that it is removed for good.')) return;
     const o = orders.find(x => x.id === id);
-    (o && o.attachments || []).forEach(a => {
-      if (a.fileId) db.ref('files/' + a.fileId).remove().catch(() => {});
-    });
-    db.ref('orders/' + safeId(id)).remove().catch(e => setSyncError('Could not delete. ' + (e && e.message || '')));
+    if (!o) return;
+    const now = new Date().toISOString();
+    db.ref('trash/' + safeId(id)).set(JSON.parse(JSON.stringify({
+      ...o,
+      deletedBy: user,
+      deletedAt: now
+    }))).then(() => db.ref('orders/' + safeId(id)).remove()).catch(e => setSyncError('Could not delete. ' + (e && e.message || '')));
+    db.ref('log').push({
+      action: 'deleted',
+      projectName: o.projectName || '',
+      brand: o.brand || '',
+      by: user,
+      at: now,
+      orderId: o.id
+    }).catch(() => {});
     setDetailId(null);
+  };
+  const restore = id => {
+    const o = trashed.find(x => x.id === id);
+    if (!o) return;
+    const now = new Date().toISOString();
+    const back = {
+      ...o
+    };
+    delete back.deletedBy;
+    delete back.deletedAt;
+    db.ref('orders/' + safeId(id)).set(JSON.parse(JSON.stringify(back))).then(() => db.ref('trash/' + safeId(id)).remove()).catch(e => setSyncError('Could not restore. ' + (e && e.message || '')));
+    db.ref('log').push({
+      action: 'restored',
+      projectName: o.projectName || '',
+      brand: o.brand || '',
+      by: user,
+      at: now,
+      orderId: o.id
+    }).catch(() => {});
   };
   const counts = {
     All: orders.filter(o => !isArchived(o)).length
@@ -1361,7 +1421,11 @@ function App() {
     counts[s] = orders.filter(o => o.status === s && !isArchived(o)).length;
   });
   counts.Archived = orders.filter(isArchived).length;
+  counts.Trash = trashed.length;
   const overdueCount = orders.filter(isOverdue).length;
+  useEffect(() => {
+    if (statusFilter === 'Trash' && synced && trashed.length === 0) setStatusFilter('All');
+  }, [trashed, statusFilter, synced]);
   const [overdueOnly, setOverdueOnly] = useState(false);
   useEffect(() => {
     if (overdueCount === 0) setOverdueOnly(false);
@@ -1455,7 +1519,7 @@ function App() {
     className: "toolbar"
   }, /*#__PURE__*/React.createElement("div", {
     className: "chips"
-  }, ['All', ...STATUSES, 'Archived'].map(s => /*#__PURE__*/React.createElement("button", {
+  }, ['All', ...STATUSES, 'Archived', ...(trashed.length ? ['Trash'] : [])].map(s => /*#__PURE__*/React.createElement("button", {
     key: s,
     className: 'chip' + (statusFilter === s ? ' active' : ''),
     onClick: () => setStatusFilter(s)
@@ -1500,10 +1564,33 @@ function App() {
   }, label, sortCol === key ? sortDir === 'asc' ? ' \u25B2' : ' \u25BC' : '')))), /*#__PURE__*/React.createElement("tbody", null, !synced && /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("td", {
     colSpan: "7",
     className: "empty"
-  }, "Loading work orders from the shared board\u2026")), synced && visible.length === 0 && /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("td", {
+  }, "Loading work orders from the shared board\u2026")), synced && statusFilter !== 'Trash' && visible.length === 0 && /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("td", {
     colSpan: "7",
     className: "empty"
-  }, orders.length === 0 ? 'No work orders yet. Select + New work order to submit the first one.' : statusFilter === 'Archived' ? 'No archived work orders. Done and canceled orders move here three months after they close.' : 'No work orders match these filters. Clear a filter or adjust the search.')), visible.map((o, idx) => /*#__PURE__*/React.createElement(React.Fragment, {
+  }, orders.length === 0 ? 'No work orders yet. Select + New work order to submit the first one.' : statusFilter === 'Archived' ? 'No archived work orders. Done and canceled orders move here three months after they close.' : 'No work orders match these filters. Clear a filter or adjust the search.')), statusFilter === 'Trash' && trashed.slice().sort((a, b) => (b.deletedAt || '').localeCompare(a.deletedAt || '')).map(o => /*#__PURE__*/React.createElement("tr", {
+    key: o.id,
+    className: "done-row trash-row"
+  }, /*#__PURE__*/React.createElement("td", {
+    className: "proj",
+    title: typeLabel(o)
+  }, o.projectName), /*#__PURE__*/React.createElement("td", {
+    className: "hide-sm dim2",
+    title: typeLabel(o)
+  }, typeLabelShort(o)), /*#__PURE__*/React.createElement("td", {
+    className: "hide-sm brand-cell",
+    title: o.brand
+  }, o.brand), /*#__PURE__*/React.createElement("td", {
+    className: "hide-sm"
+  }, o.name), /*#__PURE__*/React.createElement("td", {
+    className: "hide-sm",
+    title: assigneesOf(o).join(', ')
+  }, assigneesLabelShort(o)), /*#__PURE__*/React.createElement("td", {
+    className: "due",
+    title: 'Deleted by ' + (o.deletedBy || '?') + ' on ' + fmtDate((o.deletedAt || '').slice(0, 10))
+  }, 'Deleted ' + fmtDate((o.deletedAt || '').slice(0, 10))), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("button", {
+    className: "btn-claim",
+    onClick: () => restore(o.id)
+  }, "Restore")))), statusFilter !== 'Trash' && visible.map((o, idx) => /*#__PURE__*/React.createElement(React.Fragment, {
     key: o.id
   }, idx === firstClosedIdx && idx > 0 && /*#__PURE__*/React.createElement("tr", {
     className: "divider-row"
@@ -1547,7 +1634,14 @@ function App() {
     onChange: e => setStatus(o.id, e.target.value)
   }, STATUSES.map(s => /*#__PURE__*/React.createElement("option", {
     key: s
-  }, s)))))))))), view !== 'list' && /*#__PURE__*/React.createElement(Calendar, {
+  }, s)))))))))), view === 'list' && statusFilter === 'Trash' && logEntries.length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "log-list"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "log-title"
+  }, "Deletion log"), logEntries.map((e, i) => /*#__PURE__*/React.createElement("div", {
+    key: i,
+    className: "log-line"
+  }, fmtDate((e.at || '').slice(0, 10)), ": ", e.by, " ", e.action, " \u201C", e.projectName, "\u201D (", e.brand, ")"))), view !== 'list' && /*#__PURE__*/React.createElement(Calendar, {
     mode: view,
     cursorDate: new Date(cursor),
     orders: visible,
