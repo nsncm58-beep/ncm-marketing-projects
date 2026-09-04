@@ -1055,7 +1055,6 @@ function App() {
   const [logEntries, setLogEntries] = useState([]);
   const [synced, setSynced] = useState(false);
   const [syncError, setSyncError] = useState('');
-  const [lastBackup, setLastBackup] = useState(undefined);
   const [user, setUser] = useState(() => localStorage.getItem(USER_KEY) || '');
   const [statusFilter, setStatusFilter] = useState(() => ['All', ...STATUSES, 'Archived'].includes(savedPrefs.statusFilter) ? savedPrefs.statusFilter : 'All');
   const [brandFilter, setBrandFilter] = useState(() => BRANDS.includes(savedPrefs.brandFilter) ? savedPrefs.brandFilter : '');
@@ -1104,7 +1103,6 @@ function App() {
       if (!attached) {
         attached = true;
         ref.on('value', onValue, onError);
-        db.ref('meta/lastBackup').on('value', s => setLastBackup(s.val() || null), () => {});
         db.ref('meta/webhookUrl').on('value', s => {
           teamsWebhookUrl = s.val() || '';
         }, () => {});
@@ -1128,7 +1126,6 @@ function App() {
     return () => {
       unsubAuth();
       ref.off('value', onValue);
-      db.ref('meta/lastBackup').off();
       db.ref('meta/webhookUrl').off();
       db.ref('meta/assignWebhookUrl').off();
       db.ref('meta/emails').off();
@@ -1446,8 +1443,6 @@ function App() {
     const base = window.location.pathname + window.location.search;
     if (detailId) history.replaceState(null, '', base + '#order=' + encodeURIComponent(detailId));else if (window.location.hash) history.replaceState(null, '', base);
   }, [detailId]);
-  const BACKUP_DUE_MS = 30 * 24 * 60 * 60 * 1000;
-  const backupDue = synced && orders.length > 0 && lastBackup !== undefined && (!lastBackup || Date.now() - Date.parse(lastBackup) > BACKUP_DUE_MS);
   let visible = orders.filter(o => (statusFilter === 'Archived' ? isArchived(o) : !isArchived(o) && (statusFilter === 'All' || o.status === statusFilter)) && (!brandFilter || o.brand === brandFilter) && (!overdueOnly || isOverdue(o)) && (!meOnly || o.name === user || assigneesOf(o).includes(user) || assigneesOf(o).length === 0) && (!search || ((o.projectName || '') + ' ' + (o.description || '') + ' ' + (o.brand || '') + ' ' + typeLabel(o)).toLowerCase().includes(search.toLowerCase())));
   // Default: rush first, then unassigned active work so it gets claimed, then assigned active, closed last.
   const rank = o => isClosed(o) ? 3 : o.rush ? 0 : assigneesOf(o).length ? 2 : 1;
@@ -1513,9 +1508,7 @@ function App() {
     }
   }, "Switch person")))), /*#__PURE__*/React.createElement("main", null, syncError && /*#__PURE__*/React.createElement("div", {
     className: "banner-error"
-  }, "Not connected to the shared board: ", syncError, " Changes made now will not save. Check the internet connection and reload; tell Nate if it keeps happening."), backupDue && user === 'Nate' && !syncError && /*#__PURE__*/React.createElement("div", {
-    className: "banner-note"
-  }, "Monthly backup due. Select All with no filters and click Export CSV, then save the file."), /*#__PURE__*/React.createElement("div", {
+  }, "Not connected to the shared board: ", syncError, " Changes made now will not save. Check the internet connection and reload; tell Nate if it keeps happening."), /*#__PURE__*/React.createElement("div", {
     className: "toolbar"
   }, /*#__PURE__*/React.createElement("div", {
     className: "chips"
