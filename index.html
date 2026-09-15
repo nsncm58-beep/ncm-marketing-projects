@@ -335,6 +335,9 @@ const {
   useRef
 } = React;
 const PEOPLE = ['Alicia', 'Amelia', 'Antoinette', 'Bobbi', 'Colleen', 'Courtney', 'Michelle', 'Nate', 'Rachel', 'Sydney'];
+// Sentinel assignee: the order belongs to the whole team, counts as assigned (no claiming).
+// Stored alone in the assignees array, never alongside individual names.
+const ALL = 'All';
 const BRANDS = ['Athletic Turf', 'Golfdom', 'GPS World', 'Landscape Management', 'LP Gas', 'Pest Management Professional', 'Pit & Quarry', 'Portable Plants', 'North Coast Media (corporate)', 'Multiple brands'];
 const TYPES = ['PDF promo', 'HTML promo', 'Print promo', 'House eblast', 'House ad (include ad size in description)', 'Proposal', 'Advertiser/spec ad', 'Client mockup', 'Web ads', 'Social ads', 'Booth graphics', 'E-books', 'Other'];
 const STATUSES = ['Not started', 'In progress', 'Out for review', 'On hold', 'Done', 'Canceled'];
@@ -402,6 +405,29 @@ function notifyAssignment(names, actor, order) {
     const email = assignEmailMap[name];
     if (!email) return;
     const text = (name === actor ? 'You assigned yourself a work order: ' : actor + ' assigned you a work order: ') + order.projectName + ' (' + order.brand + '), due ' + fmtDate(order.dueDate) + '. <a href="' + orderLink(order.id) + '">Open the order</a>';
+    try {
+      fetch(hook, {
+        method: 'POST',
+        mode: 'cors',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          email: email,
+          text: text
+        })
+      }).catch(() => {});
+    } catch (e) {}
+  });
+}
+// Orders assigned to All ping every mapped address, submitter included; nothing needs claiming.
+function notifyAllAssigned(actor, order) {
+  const hook = assignWebhookUrl || window.__ncmTestAssignHook;
+  if (!hook) return;
+  Object.keys(assignEmailMap).forEach(name => {
+    const email = assignEmailMap[name];
+    if (!email) return;
+    const text = (name === actor ? 'You assigned the whole team a work order: ' : actor + ' assigned the whole team a work order: ') + order.projectName + ' (' + order.brand + '), due ' + fmtDate(order.dueDate) + '. <a href="' + orderLink(order.id) + '">Open the order</a>';
     try {
       fetch(hook, {
         method: 'POST',
@@ -625,10 +651,17 @@ function OrderForm({
       types: f.types.includes(t) ? f.types.filter(x => x !== t) : [...f.types, t]
     }));
   };
+  // Picking a person drops All; picking All drops everyone else.
   const toggleAssignee = p => {
     setForm(f => ({
       ...f,
-      assignees: f.assignees.includes(p) ? f.assignees.filter(x => x !== p) : [...f.assignees, p]
+      assignees: f.assignees.includes(p) ? f.assignees.filter(x => x !== p) : [...f.assignees.filter(x => x !== ALL), p]
+    }));
+  };
+  const toggleAll = () => {
+    setForm(f => ({
+      ...f,
+      assignees: f.assignees.includes(ALL) ? [] : [ALL]
     }));
   };
   const MAX_FILE_BYTES = 10 * 1024 * 1024;
@@ -773,7 +806,13 @@ function OrderForm({
     className: "field"
   }, /*#__PURE__*/React.createElement("label", null, "Assign to (optional, check everyone involved)"), /*#__PURE__*/React.createElement("div", {
     className: "checks people"
-  }, PEOPLE.map(p => /*#__PURE__*/React.createElement("label", {
+  }, /*#__PURE__*/React.createElement("label", {
+    className: "check"
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "checkbox",
+    checked: form.assignees.includes(ALL),
+    onChange: toggleAll
+  }), "All (whole team)"), PEOPLE.map(p => /*#__PURE__*/React.createElement("label", {
     key: p,
     className: "check"
   }, /*#__PURE__*/React.createElement("input", {
@@ -886,7 +925,7 @@ function OrderDetail({
     className: "detail-grid"
   }, order.rush && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("dt", null, "Priority"), /*#__PURE__*/React.createElement("dd", {
     className: "ovd"
-  }, "Rush")), /*#__PURE__*/React.createElement("dt", null, "Brand"), /*#__PURE__*/React.createElement("dd", null, order.brand), /*#__PURE__*/React.createElement("dt", null, "Project type"), /*#__PURE__*/React.createElement("dd", null, typeLabel(order)), /*#__PURE__*/React.createElement("dt", null, "Requested by"), /*#__PURE__*/React.createElement("dd", null, order.name), /*#__PURE__*/React.createElement("dt", null, "Assigned to"), /*#__PURE__*/React.createElement("dd", null, assigneesOf(order).length ? assigneesOf(order).join(', ') : /*#__PURE__*/React.createElement("button", {
+  }, "Rush")), /*#__PURE__*/React.createElement("dt", null, "Brand"), /*#__PURE__*/React.createElement("dd", null, order.brand), /*#__PURE__*/React.createElement("dt", null, "Project type"), /*#__PURE__*/React.createElement("dd", null, typeLabel(order)), /*#__PURE__*/React.createElement("dt", null, "Requested by"), /*#__PURE__*/React.createElement("dd", null, order.name), /*#__PURE__*/React.createElement("dt", null, "Assigned to"), /*#__PURE__*/React.createElement("dd", null, assigneesOf(order).includes(ALL) ? 'All (whole team)' : assigneesOf(order).length ? assigneesOf(order).join(', ') : /*#__PURE__*/React.createElement("button", {
     className: "btn-claim",
     onClick: onClaim
   }, "Claim")), /*#__PURE__*/React.createElement("dt", null, "Final due date"), /*#__PURE__*/React.createElement("dd", {
@@ -1250,7 +1289,10 @@ function App() {
         });
         const before = new Set(assigneesOf(current));
         const added = (form.assignees || []).filter(n => !before.has(n));
-        notifyAssignment(added, user, {
+        if (added.includes(ALL)) notifyAllAssigned(user, {
+          ...current,
+          ...form
+        });else notifyAssignment(added, user, {
           ...current,
           ...form
         });
@@ -1266,7 +1308,10 @@ function App() {
           updatedAt: now
         });
         notify((form.rush ? 'New rush work order: ' : 'New work order: ') + form.projectName + ' (' + form.brand + '), due ' + fmtDate(form.dueDate) + ', from ' + form.name, id);
-        if ((form.assignees || []).length) notifyAssignment(form.assignees, user, {
+        if ((form.assignees || []).includes(ALL)) notifyAllAssigned(user, {
+          ...form,
+          id: id
+        });else if ((form.assignees || []).length) notifyAssignment(form.assignees, user, {
           ...form,
           id: id
         });else notifyUnassigned(user, {
@@ -1443,7 +1488,7 @@ function App() {
     const base = window.location.pathname + window.location.search;
     if (detailId) history.replaceState(null, '', base + '#order=' + encodeURIComponent(detailId));else if (window.location.hash) history.replaceState(null, '', base);
   }, [detailId]);
-  let visible = orders.filter(o => (statusFilter === 'Archived' ? isArchived(o) : !isArchived(o) && (statusFilter === 'All' || o.status === statusFilter)) && (!brandFilter || o.brand === brandFilter) && (!overdueOnly || isOverdue(o)) && (!meOnly || o.name === user || assigneesOf(o).includes(user) || assigneesOf(o).length === 0) && (!search || ((o.projectName || '') + ' ' + (o.description || '') + ' ' + (o.brand || '') + ' ' + typeLabel(o)).toLowerCase().includes(search.toLowerCase())));
+  let visible = orders.filter(o => (statusFilter === 'Archived' ? isArchived(o) : !isArchived(o) && (statusFilter === 'All' || o.status === statusFilter)) && (!brandFilter || o.brand === brandFilter) && (!overdueOnly || isOverdue(o)) && (!meOnly || o.name === user || assigneesOf(o).includes(user) || assigneesOf(o).includes(ALL) || assigneesOf(o).length === 0) && (!search || ((o.projectName || '') + ' ' + (o.description || '') + ' ' + (o.brand || '') + ' ' + typeLabel(o)).toLowerCase().includes(search.toLowerCase())));
   // Default: rush first, then unassigned active work so it gets claimed, then assigned active, closed last.
   const rank = o => isClosed(o) ? 3 : o.rush ? 0 : assigneesOf(o).length ? 2 : 1;
   const SORT_KEYS = {
