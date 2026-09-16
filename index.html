@@ -579,12 +579,21 @@ function linkify(text) {
   }, p) : p);
 }
 function assigneesOf(order) {
-  return order.assignees || (order.assignedTo ? [order.assignedTo] : []);
+  // Blank names are not assignments: claim() once ran before a name was picked and wrote '',
+  // which made orders look assigned (no Claim button) while showing nobody.
+  const raw = order.assignees || (order.assignedTo ? [order.assignedTo] : []);
+  return raw.filter(n => n && String(n).trim());
 }
 // Compact form for the table: first assignee plus a count, matching the type column.
 function assigneesLabelShort(order) {
   const a = assigneesOf(order);
+  if (a.includes(ALL)) return 'Whole team';
   return a.length > 1 ? a[0] + ' +' + (a.length - 1) : a[0] || '';
+}
+// Full form for title attrs, the calendar and the CSV.
+function assigneesLabelFull(order) {
+  const a = assigneesOf(order);
+  return a.includes(ALL) ? 'Whole team' : a.join(', ');
 }
 function NamePicker({
   onPick
@@ -1085,7 +1094,7 @@ function Calendar({
       onClick: () => onOpen(o.id)
     }, o.projectName, mode === 'week' && /*#__PURE__*/React.createElement("span", {
       className: "chip-sub"
-    }, o.brand, " \xB7 ", assigneesOf(o).length ? assigneesOf(o).join(', ') : 'Unassigned'))));
+    }, o.brand, " \xB7 ", assigneesLabelFull(o) || 'Unassigned'))));
   })));
 }
 function App() {
@@ -1353,7 +1362,8 @@ function App() {
   };
   const claim = id => {
     const target = orders.find(o => o.id === id);
-    if (!target || assigneesOf(target).length) return;
+    // No user yet (deep link opened before the name picker): claiming would record a blank name.
+    if (!user || !target || assigneesOf(target).length) return;
     const next = {
       ...target,
       assignees: [user],
@@ -1402,7 +1412,7 @@ function App() {
       return '"' + s.replace(/"/g, '""') + '"';
     };
     const rows = [['Project', 'Types', 'Brand', 'Requested by', 'Assigned to', 'Due date', 'Status', 'Rush', 'Submitted', 'Description']];
-    visible.forEach(o => rows.push([o.projectName, typeLabel(o), o.brand, o.name, assigneesOf(o).join('; '), o.dueDate || '', o.status, o.rush ? 'Yes' : 'No', (o.createdAt || '').slice(0, 10), o.description]));
+    visible.forEach(o => rows.push([o.projectName, typeLabel(o), o.brand, o.name, assigneesOf(o).includes(ALL) ? 'Whole team' : assigneesOf(o).join('; '), o.dueDate || '', o.status, o.rush ? 'Yes' : 'No', (o.createdAt || '').slice(0, 10), o.description]));
     const csv = rows.map(r => r.map(esc).join(',')).join('\r\n');
     const blob = new Blob(['\uFEFF' + csv], {
       type: 'text/csv;charset=utf-8'
@@ -1621,7 +1631,7 @@ function App() {
     className: "hide-sm"
   }, o.name), /*#__PURE__*/React.createElement("td", {
     className: "hide-sm",
-    title: assigneesOf(o).join(', ')
+    title: assigneesLabelFull(o)
   }, assigneesLabelShort(o)), /*#__PURE__*/React.createElement("td", {
     className: "due",
     title: 'Deleted by ' + (o.deletedBy || '?') + ' on ' + fmtDate((o.deletedAt || '').slice(0, 10))
@@ -1653,7 +1663,7 @@ function App() {
     className: "hide-sm"
   }, o.name), /*#__PURE__*/React.createElement("td", {
     className: "hide-sm",
-    title: assigneesOf(o).join(', ')
+    title: assigneesLabelFull(o)
   }, assigneesOf(o).length ? assigneesLabelShort(o) : /*#__PURE__*/React.createElement("button", {
     className: "btn-claim",
     onClick: e => {
@@ -1686,9 +1696,7 @@ function App() {
     onNav: navCal,
     onToday: goToday,
     onOpen: setDetailId
-  })), !user && /*#__PURE__*/React.createElement(NamePicker, {
-    onPick: pickUser
-  }), showForm && /*#__PURE__*/React.createElement(OrderForm, {
+  })), showForm && /*#__PURE__*/React.createElement(OrderForm, {
     user: user,
     initial: editing,
     prefill: prefill,
@@ -1721,6 +1729,8 @@ function App() {
     },
     onDelete: () => remove(detail.id),
     onClose: () => setDetailId(null)
+  }), !user && /*#__PURE__*/React.createElement(NamePicker, {
+    onPick: pickUser
   }));
 }
 ReactDOM.createRoot(document.getElementById('root')).render( /*#__PURE__*/React.createElement(App, null));
