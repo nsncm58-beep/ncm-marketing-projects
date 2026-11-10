@@ -290,6 +290,20 @@
     border-radius: var(--r-sm); padding: 11px 14px; margin-bottom: 14px; font-size: 14px;
   }
 
+  /* Nothing active: a calm confirmation up top, with closed work further down the page. */
+  .caught-up {
+    background: var(--surface); border: 1px solid var(--line); border-radius: var(--r);
+    min-height: clamp(280px, 52vh, 640px); padding: 32px 20px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center;
+  }
+  .caught-up-mark {
+    width: 56px; height: 56px; border-radius: 50%; display: grid; place-items: center;
+    background: var(--s4-bg); color: var(--s4-ink); margin-bottom: 16px;
+  }
+  .caught-up h2 { font-size: 22px; font-weight: 900; letter-spacing: -0.005em; }
+  .caught-up p { color: var(--muted); font-size: 14.5px; margin-top: 6px; max-width: 600px; }
+  .divider-btn.closed-head { width: auto; margin: 30px 0 10px; padding: 6px 6px; border-radius: var(--r-sm); }
+
   /* Order list. Columns drop out as the board narrows (the details panel takes room). */
   .board {
     background: var(--surface); border: 1px solid var(--line); border-radius: var(--r);
@@ -2167,6 +2181,10 @@ function App() {
     setSearch('');
   };
   const activeCount = firstClosedIdx === -1 ? visible.length : firstClosedIdx;
+  // Nothing active in this view: say so up top and move closed work down the page instead of
+  // letting finished orders fill the screen. Picking a status (Done, Canceled, Archived) is
+  // an explicit request for that work, so those views keep the plain list.
+  const noActive = synced && !inTrash && statusFilter === 'All' && orders.length > 0 && activeCount === 0 && (closedCount > 0 || !filtersActive);
   const headBits = [];
   if (inTrash) {
     headBits.push(trashed.length + (trashed.length === 1 ? ' deleted work order' : ' deleted work orders') + ', kept for 30 days');
@@ -2336,7 +2354,33 @@ function App() {
         if (inTrash) setStatusFilter('All');
       }
     }
-  }, lbl))))), view === 'list' && /*#__PURE__*/React.createElement("div", {
+  }, lbl))))), view === 'list' && noActive && /*#__PURE__*/React.createElement("div", {
+    className: "caught-up",
+    role: "status"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "caught-up-mark",
+    "aria-hidden": "true"
+  }, /*#__PURE__*/React.createElement("svg", {
+    viewBox: "0 0 24 24",
+    width: "26",
+    height: "26",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: "2.6",
+    strokeLinecap: "round",
+    strokeLinejoin: "round"
+  }, /*#__PURE__*/React.createElement("path", {
+    d: "M5 12.5l4.5 4.5L19 7.5"
+  }))), /*#__PURE__*/React.createElement("h2", null, filtersActive ? 'No active work orders' : 'All caught up'), /*#__PURE__*/React.createElement("p", null, filtersActive ? 'Nothing active matches these filters.' : meOnly ? 'You have no active work orders right now.' : 'There are no active work orders on the board right now.', closedCount > 0 && showClosed && ' Closed work is listed below.')), view === 'list' && noActive && closedCount > 0 && /*#__PURE__*/React.createElement("button", {
+    className: "divider-btn closed-head",
+    "aria-expanded": showClosed,
+    onClick: () => setShowClosed(v => !v)
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "chev",
+    "aria-hidden": "true"
+  }, '\u25BE'), "Closed (", closedCount, ")", !showClosed && /*#__PURE__*/React.createElement("span", {
+    className: "hint"
+  }, "\xB7 hidden")), view === 'list' && !(noActive && (closedCount === 0 || !showClosed)) && /*#__PURE__*/React.createElement("div", {
     className: "board"
   }, /*#__PURE__*/React.createElement("table", null, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, cols.map(([key, label, cls]) => inTrash ? /*#__PURE__*/React.createElement("th", {
     key: key,
